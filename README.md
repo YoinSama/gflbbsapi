@@ -106,10 +106,6 @@ node start.mjs
 node stop.mjs
 ```
 
-### 100% 可靠方法（终端直接跑 Node 脚本，别依赖双击）
-
-`start.mjs` / `stop.mjs` 是纯 Node 脚本、跨平台通用。本项目**不再提供 `.bat` 双击启动器**（用户于 2026-09-04 主动删除了 `start.bat` / `stop.bat`——此前双击曾因 Windows 文件关联被改、或文件带「Mark of the Web」(MOTW) 不可信标记而毫无反应、连黑窗口都不弹）。最稳的方式是直接用终端跑 `node start.mjs` / `node stop.mjs`，适用于 Windows / Linux / macOS：
-
 **停止**
 ```bash
 cd /path/to/GFL2bbsAPI
@@ -144,11 +140,6 @@ curl --noproxy localhost -s -o /dev/null -w "%{http_code}\n" http://localhost:87
 ```
 - **HTTP 200** = 服务在跑；**连接被拒 / 超时** = 已停止；**502** = 多半是代理在瞎指路，按上面加 `--noproxy` 复测。
 
-#### 双击 bat 无反应的排查
-
-1. 若日后自行加回 `.bat` 启动器遇到 MOTW 拦截：右键该 `.bat` → 属性 → 底部有「解除锁定 / Unblock」就勾上 → 确定。
-2. 若 `.bat` 被绑到编辑器导致双击只打开源码：改用终端（见上）；或把脚本里的 `node` 写死成绝对路径（如 `C:\Program Files\nodejs\node.exe`）。
-3. 想彻底绕开关联可用 `.lnk` 快捷方式（双击 `.lnk` 不受 `.bat` 关联影响，必弹窗执行）。
 
 加密逻辑自测（无需安装依赖，仅用 Node 内置 crypto）：
 
@@ -199,12 +190,12 @@ pm2 startup                 # 生成开机自启（按提示执行它打印的 s
          仅监听应用端口，不装 nginx、不开 80/443
 ```
 
+0. **安全组收敛（强烈建议优先完成）**：在阿里云控制台将源站端口的入方向来源限制为 [Cloudflare 官方 IP 段](https://www.cloudflare.com/ips/)，而非 `0.0.0.0/0`。这样除 Cloudflare 外无人能直连源站端口 → 后续步骤中回源明文流量不会通过公网暴露给其他访客。**没做这一步前不要执行后续步骤**。
 1. **服务器侧**：只把源站应用跑起来即可（一键脚本 / 手动步骤见上），**不装 nginx、不跑 certbot**。
 2. **DNS**：`gflbbsapi.example.com` 的 A 记录**直接指向阿里云公网 IP**，且保持**橙云（Proxied）**——只有代理状态，下面的 SSL 与 Origin Rule 设置才会生效。
-3. **Cloudflare → SSL/TLS → Overview**：加密模式设为 **Flexible**（Cloudflare 终结访客 HTTPS，回源走明文 HTTP；本项目 cookie 无 `Secure` 标志，登录不受影响）。
+3. **Cloudflare → SSL/TLS → Overview**：加密模式设为 **Flexible**（Cloudflare 终结访客 HTTPS，回源走明文 HTTP）。
 4. **Cloudflare → Rules → Origin Rules**：新建规则，条件 `Hostname = gflbbsapi.example.com`，操作 **Override destination port → 源站应用监听端口**（免费版可用）。Cloudflare 默认只回源 80/443，必须用该规则把回源目标端口覆盖为源站应用实际监听的端口，否则回源连不上。
-5. **安全组 / 防火墙（阿里云安全组 + 实例 ufw）**：只放行源站应用监听端口的入方向流量，80/443 可不开。
-   - 🔒 **进阶收敛（推荐）**：把安全组来源限制为 [Cloudflare 官方 IP 段](https://www.cloudflare.com/ips/)，而非 `0.0.0.0/0`，彻底隐藏源站——除 Cloudflare 外无人能直连源站端口。
+5. **防火墙（实例 ufw）**：如启用了 ufw，放行源站应用监听端口的入方向流量；其余端口均关闭。
 6. **验证**：`curl -s -o /dev/null -w "%{http_code}\n" https://gflbbsapi.example.com/`（本机若走 Clash 等代理需加 `--noproxy`），返回 200 即通。
 
 > ⚠️ 源站应用实际监听端口在 `server/ecosystem.config.cjs` 的 `PORT` 配置（可用环境变量覆盖），此处不展开。**该路线下不要在源站装 nginx 或跑 certbot**：Cloudflare 代理会截胡 Let's Encrypt 的 HTTP-01 校验，且访客 HTTPS 已由 Cloudflare 终结，源站本就无需证书。
