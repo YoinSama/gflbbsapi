@@ -2,11 +2,22 @@
 # 诊断「Cloudflare 返回 521 / 域名打不开」的一键自检脚本
 # 用法（在部署服务器的项目根目录执行）：
 #   git pull && bash diag-server.sh
-#   git pull && DOMAIN=你的域名 bash diag-server.sh   # 传入域名才会核对 DNS A 记录
+#
+# 域名（用于 [6/7] 核对 DNS A 记录）按以下优先级读取：
+#   1) 环境变量：DOMAIN=你的域名 bash diag-server.sh
+#   2) 本地配置：server/data/diag.env（内容一行 DOMAIN=你的域名）
+#      —— server/data/ 已被 .gitignore 忽略，域名写这里不会进 git，
+#         推荐方式：echo 'DOMAIN=你的域名' > server/data/diag.env 设置一次即可
+# 两者都不提供时跳过 DNS 核对，其余诊断不受影响。
 # 脚本只读，不修改任何配置、不重启服务。
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT=8787
 DOMAIN="${DOMAIN:-}"
+if [ -z "$DOMAIN" ] && [ -f "$SCRIPT_DIR/server/data/diag.env" ]; then
+  # shellcheck disable=SC1090
+  . "$SCRIPT_DIR/server/data/diag.env"
+fi
 say() { printf '%s\n' "$*"; }
 hr()  { printf '%s\n' "------------------------------------------------------------"; }
 
