@@ -4,45 +4,33 @@
 #
 # 用法：
 #   chmod +x deploy-ubuntu.sh
-#   ./deploy-ubuntu.sh [--dir /path/to/project] [--nginx gflbbsapi.example.com] [--ssl]
+#   ./deploy-ubuntu.sh [--dir /path/to/project]
 #
 # 参数：
 #   --dir <目录>   项目代码所在目录（默认：当前目录）。代码需已在本机
 #                  （git clone，或 scp/rsync 上传）。
-#   --nginx <域名> 额外配置 nginx 反代到该域名（需 DNS 已指向本机，
-#                  安全组放行 80/443，8787 不对外）。
-#   --ssl          配合 --nginx，顺带用 certbot 申请 Let's Encrypt 证书
-#                  （自动把 80 跳转 443、续期）。
 #   -h, --help     显示本帮助。
 #
 # 说明：
-#   - 以「有 sudo 权限的普通用户」运行；脚本内部用 sudo 装系统包、配开机自启与 nginx。
+#   - 以「有 sudo 权限的普通用户」运行；脚本内部用 sudo 装系统包、配开机自启。
 #   - 自动完成：装 Node 20 LTS + pnpm + pm2 → 装依赖 → 重建 esbuild → 构建
 #     → pm2 守护 → 保存进程列表 → 配开机自启。
 #   - 幂等：重复运行不会破坏已有服务（pm2 以 --update-env 重启）。
-#   - 安全组：直连模式放行 TCP 8787；走 nginx 则放行 80/443、8787 不对外。
+#   - 生产架构 = Cloudflare 代理 → 源站直连：源站只跑 Node 应用（应用实际
+#     监听端口见 server/ecosystem.config.cjs 的 PORT，可用环境变量覆盖），
+#     不装 nginx、不跑 certbot、不开 80/443。
 #
 set -euo pipefail
 
 # ---------- 参数解析 ----------
 PROJECT_DIR="$(pwd)"
-DOMAIN=""
-WITH_NGINX=0
-WITH_SSL=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dir)   PROJECT_DIR="$2"; shift 2 ;;
-    --nginx) DOMAIN="$2"; WITH_NGINX=1; shift 2 ;;
-    --ssl)   WITH_SSL=1; shift ;;
-    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
     *) echo "未知参数: $1（用 -h 看帮助）"; exit 1 ;;
   esac
 done
-
-if [[ "$WITH_SSL" -eq 1 && "$WITH_NGINX" -eq 0 ]]; then
-  echo "[错误] --ssl 必须配合 --nginx <域名> 使用"
-  exit 1
-fi
 
 echo "==> 项目目录: $PROJECT_DIR"
 cd "$PROJECT_DIR"
@@ -98,50 +86,11 @@ echo "==> pm2 startup（开机自启，写入 systemd，以当前用户 $USER �
 sudo pm2 startup systemd -u "$USER" --hp "$HOME"
 pm2 save
 
-# ---------- 5. 可选 nginx 反代 ----------
-if [[ "$WITH_NGINX" -eq 1 ]]; then
-  echo "==> 配置 nginx 反代 ($DOMAIN)"
-  sudo apt-get update
-  sudo apt-get install -y nginx
-  sudo tee "/etc/nginx/sites-available/gfl2-community-api" >/dev/null <<EOF
-server {
-    listen 80;
-    server_name ${DOMAIN};
-    client_max_body_size 10m;
-
-    location / {
-        proxy_pass http://127.0.0.1:8787;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 60s;
-    }
-}
-EOF
-  sudo ln -sf "/etc/nginx/sites-available/gfl2-community-api" "/etc/nginx/sites-enabled/"
-  sudo nginx -t
-  sudo systemctl reload nginx
-
-  if [[ "$WITH_SSL" -eq 1 ]]; then
-    echo "==> 申请 Let's Encrypt 证书 ($DOMAIN)"
-    sudo apt-get install -y certbot python3-certbot-nginx
-    sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email
-    sudo systemctl reload nginx
-  fi
-  echo "==> 完成：http://${DOMAIN}（HTTPS 需 --ssl 且 DNS 已指向本机）"
-fi
-
 # ---------- 完成 ----------
 echo
 echo "===== 部署完成 ====="
 echo "  进程列表："
 pm2 list
-echo
-if [[ "$WITH_NGINX" -eq 0 ]]; then
-  echo "  直连： http://<服务器公网IP>:8787   （安全组放行 TCP 8787）"
-else
-  echo "  域名： http://${DOMAIN}"
-fi
+echo "  公网访问：经 Cloudflare 代理访问域名（HTTPS），源站无需对外开 80/443"
 echo "  管理页： /admin   （社区账号登录在 / 管理员登录后进入）"
 echo "  停止： node stop.mjs    启动： node start.mjs"

@@ -31,14 +31,14 @@
 | 后端 | Node.js + TypeScript + Hono（单进程：出 API + 托管前端静态文件） |
 | 前端 | Vue 3 + Vite（Login 登录页 + Admin 管理页，CSS 变量深浅色主题，响应式） |
 | 持久化 | 服务器本地 JSON 文件（`data/token.json`，已 gitignore） |
-| 部署 | PM2（进程守护）+ nginx（反代） |
+| 部署 | PM2（进程守护）+ Cloudflare（代理 / HTTPS 终结，源站直连） |
 
 加密细节：密码先 MD5，账号与密码均用 `aes-128-cbc`（key = iv = `ENCRYPTION_KEY`）加密，
 密文 hex → base64 → URL-safe。密钥来自官方社区前端脚本，可能与版本相关。
 
 ## 社区接口说明
 
-社区后端**并非** Self Community 风格的 `/api/v2/*` REST（实测：`/api/v2/user`、`/api/v2/me` 在 API 子域返回 404、在主站被 Nginx 回退到 SPA）。真实结构如下（已用真实账号实测确认）：
+社区后端**并非** Self Community 风格的 `/api/v2/*` REST（实测：`/api/v2/user`、`/api/v2/me` 在 API 子域返回 404、在主站被回退到 SPA 页面）。真实结构如下（已用真实账号实测确认）：
 
 - **API 域名**：`https://gf2-bbs-api.exiliumgf.com`（注意是 `gf2-bbs-api` 子域，不是主站 `gf2-bbs`）
 - **业务接口统一在 `/community/*` 下**
@@ -82,7 +82,6 @@ GFL2bbsAPI/               # 项目根目录（原 gfl2-community-api）
 │  └─ ecosystem.config.cjs # PM2 配置
 ├─ web/                    # Vue 3 + Vite 前端
 │  └─ src/views/Login.vue, Admin.vue
-├─ nginx.conf.example      # nginx 反代示例
 └─ .env.example
 ```
 
@@ -161,12 +160,10 @@ pnpm selftest
 
 > 前置：服务器已装 Node.js 18+ 与 pnpm（`npm i -g pnpm` 或官方脚本）。本项目路径解析跨平台，无需任何 Windows 专用改动。
 
-**一键部署脚本**（推荐，自动装 Node/pnpm/pm2 + 构建 + 守护 + 开机自启，可选项配 nginx/HTTPS）：
+**一键部署脚本**（推荐，自动装 Node/pnpm/pm2 + 构建 + 守护 + 开机自启；纯源站侧，不含任何 nginx / 证书逻辑）：
 ```bash
 chmod +x deploy-ubuntu.sh
-./deploy-ubuntu.sh                       # 仅 pm2 守护，直连 8787
-./deploy-ubuntu.sh --nginx gflbbsapi.example.com          # 额外配 nginx 反代到域名
-./deploy-ubuntu.sh --nginx gflbbsapi.example.com --ssl     # 再加 Let's Encrypt 证书
+./deploy-ubuntu.sh                       # 仅 pm2 守护源站应用
 ```
 脚本需以「有 sudo 权限的普通用户」运行，代码需已上传到目标目录（默认当前目录，可用 `--dir` 指定）。详见脚本头注释。
 
@@ -191,37 +188,26 @@ pm2 startup                 # 生成开机自启（按提示执行它打印的 s
 > 而 `esbuild` 必须靠 postinstall 装原生二进制，不放行则 `esbuild`/`vite` 都跑不起来 → 构建、`node start.mjs` 全线失败。
 > **本项目已配置** `allowBuilds: { esbuild: true }`（见 `pnpm-workspace.yaml`）。⚠️ 注意该值**必须是布尔值**——pnpm 自动生成的占位文字 `set this to true or false` 会被判为「未放行」并触发上述报错；且不要把配置同时写在 `package.json`（v11 已忽略，会造成两份冲突来源）。
 
-### 安全组 / 防火墙
-- **直接暴露 8787**：云控制台安全组入方向放行 TCP 8787，即可 `http://公网IP:8787` 直连，个人工具够用（建议仅对自己 IP 放行）。
-- **走域名 + HTTPS（推荐）**：安全组放行 80/443，用下面 nginx 反代，对外只露 80/443，8787 不对外开放。
-- **经 Cloudflare 代理（本项目实际部署方式，见下）**：`gflbbsapi.example.com` 在 Cloudflare 的 A 记录**直接指向阿里云公网 IP**（橙云代理），Cloudflare 在源站前。安全组**放行 TCP 8787**（Cloudflare 经 Origin Rule 回源到 8787），80/443 可不开放；实例 ufw 同样放行 8787。
+### 部署架构：Cloudflare 代理 → 源站直连（本项目采用）
 
-### 经 Cloudflare 代理部署（Origin Rule 回源 8787，本项目采用）
-> 前提：域名在 Cloudflare 且 `gflbbsapi.example.com` 的 A 记录**直接指向阿里云公网 IP、且为橙云（代理）**。App 监听 `0.0.0.0:8787`（默认如此，无需改代码）。
-
-1. **服务器侧**：只需把 app 跑起来（不装 nginx、不跑 certbot）：
-   ```bash
-   ./deploy-ubuntu.sh            # 仅 pm2 守护，app 在 8787；不带 --nginx
-   ```
-2. **Cloudflare → SSL/TLS → Overview**：加密模式设为 **Flexible**（Cloudflare 终结访客 HTTPS，回源到 8787 走明文 HTTP；本项目 cookie 无 `Secure` 标志，登录不受影响）。
-3. **Cloudflare → Rules → Origin Rules**：新建规则，条件 `Hostname = gflbbsapi.example.com`，操作 **Override destination port → 8787**（免费版可用，10 条额度）。这样 Cloudflare 回源才会打到 8787（默认只回源 80/443，8787 不在代理端口列表）。
-4. **验证**：`curl -s -o /dev/null -w "%{http_code}\n" https://gflbbsapi.example.com/`（本机若走 Clash 等代理需加 `--noproxy`）。
-
-> ⚠️ 该路线下 **不要**用 `deploy-ubuntu.sh --nginx/--ssl` 里的 certbot（Cloudflare 代理会截胡 HTTP-01 校验，且背后有 Cloudflare 本就不需要 certbot）；也**不要**开 80/443。`nginx.conf.example` 仅用于「不用 Cloudflare、直接 80/443 + Let's Encrypt」的另一种部署，本路线用不到。
-> 🔒 进阶收敛：若想彻底隐藏源站，可把安全组 8787 的来源限制为 [Cloudflare 官方 IP 段](https://www.cloudflare.com/ips/)，而非 `0.0.0.0/0`。
-
-### nginx 反代（参考 nginx.conf.example，仅用于「不用 Cloudflare、直连 80/443 + Let's Encrypt」的部署）
-```bash
-sudo apt install nginx
-sudo cp nginx.conf.example /etc/nginx/sites-available/gfl2-community-api
-sudo ln -s /etc/nginx/sites-available/gflbbsapi.example.com /etc/nginx/sites-enabled/ 2>/dev/null || sudo ln -s /etc/nginx/sites-available/gfl2-community-api /etc/nginx/sites-enabled/
-# nginx.conf.example 的 server_name 已预设为 gflbbsapi.example.com，
-# 请确认 DNS 已将该域名（灰云/直连）指向本机公网 IP
-sudo nginx -t && sudo systemctl reload nginx
-# 启用 HTTPS（自动改写配置 + 续期）：
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d gflbbsapi.example.com
 ```
+访客 -- HTTPS --> Cloudflare（终结 TLS / 代理 / 边缘缓存）
+                        |
+                        | 回源（明文 HTTP）
+                        v
+         阿里云源站 · Node 应用（PM2 守护）
+         仅监听应用端口，不装 nginx、不开 80/443
+```
+
+1. **服务器侧**：只把源站应用跑起来即可（一键脚本 / 手动步骤见上），**不装 nginx、不跑 certbot**。
+2. **DNS**：`gflbbsapi.example.com` 的 A 记录**直接指向阿里云公网 IP**，且保持**橙云（Proxied）**——只有代理状态，下面的 SSL 与 Origin Rule 设置才会生效。
+3. **Cloudflare → SSL/TLS → Overview**：加密模式设为 **Flexible**（Cloudflare 终结访客 HTTPS，回源走明文 HTTP；本项目 cookie 无 `Secure` 标志，登录不受影响）。
+4. **Cloudflare → Rules → Origin Rules**：新建规则，条件 `Hostname = gflbbsapi.example.com`，操作 **Override destination port → 源站应用监听端口**（免费版可用）。Cloudflare 默认只回源 80/443，必须用该规则把回源目标端口覆盖为源站应用实际监听的端口，否则回源连不上。
+5. **安全组 / 防火墙（阿里云安全组 + 实例 ufw）**：只放行源站应用监听端口的入方向流量，80/443 可不开。
+   - 🔒 **进阶收敛（推荐）**：把安全组来源限制为 [Cloudflare 官方 IP 段](https://www.cloudflare.com/ips/)，而非 `0.0.0.0/0`，彻底隐藏源站——除 Cloudflare 外无人能直连源站端口。
+6. **验证**：`curl -s -o /dev/null -w "%{http_code}\n" https://gflbbsapi.example.com/`（本机若走 Clash 等代理需加 `--noproxy`），返回 200 即通。
+
+> ⚠️ 源站应用实际监听端口在 `server/ecosystem.config.cjs` 的 `PORT` 配置（可用环境变量覆盖），此处不展开。**该路线下不要在源站装 nginx 或跑 certbot**：Cloudflare 代理会截胡 Let's Encrypt 的 HTTP-01 校验，且访客 HTTPS 已由 Cloudflare 终结，源站本就无需证书。
 
 ### 部署注意
 - **会话已持久化到 admin.json（文件共享）**：`ecosystem.config.cjs` 用 `instances: 1` 单进程，登录态稳；即便改 cluster 多进程（`instances: 'max'`），所有进程也读同一份 `admin.json`，请求轮询到任意进程都能识别登录态（不再被踢）。唯一残留风险是极端并发下多进程同时写 `admin.json` 可能相互覆盖会话，个人工具量级可忽略；高并发场景建议换 Redis。
