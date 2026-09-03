@@ -55,14 +55,21 @@ say ""
 say "[4/7] 防火墙（ufw）是否放行 ${PORT}"
 hr
 if command -v ufw >/dev/null 2>&1; then
-  sudo ufw status 2>/dev/null | sed 's/^/  /' || ufw status 2>/dev/null | sed 's/^/  /'
-  if (sudo ufw status 2>/dev/null || ufw status 2>/dev/null) | grep -qE "^${PORT}\b|${PORT}/tcp.*ALLOW"; then
-    say "  >>> 结论：ufw 已放行 ${PORT}"
+  UFWOUT=$(sudo ufw status 2>/dev/null || ufw status 2>/dev/null)
+  printf '%s\n' "$UFWOUT" | sed 's/^/  /'
+  if printf '%s' "$UFWOUT" | grep -qi "^Status: active"; then
+    if printf '%s' "$UFWOUT" | grep -qE "^${PORT}\b|${PORT}/tcp.*ALLOW"; then
+      say "  >>> 结论：ufw 已启用且已放行 ${PORT}"
+    else
+      say "  >>> 结论：ufw 已启用但【未放行】 ${PORT} —— 需执行：sudo ufw allow ${PORT}"
+    fi
+  elif printf '%s' "$UFWOUT" | grep -qi "inactive"; then
+    say "  >>> 结论：ufw 未启用（inactive）—— 不拦截任何端口，【无需】放行，此项不是 521 的原因"
   else
-    say "  >>> 结论：ufw 【未放行】 ${PORT} —— 需执行：sudo ufw allow ${PORT}"
+    say "  >>> 结论：无法判断 ufw 状态，请人工确认上面输出"
   fi
 else
-  say "  ufw 未安装（若未装则不受此限制）"
+  say "  ufw 未安装（不受此限制，不是 521 的原因）"
 fi
 
 say ""
@@ -110,9 +117,28 @@ say ""
 say "============================================================"
 say " 诊断结束 —— 请把以上输出贴给助手，即可精确定位 521 原因"
 say "============================================================"
+
 say ""
-say "附：521 最常见的三个原因（按概率排序）"
+say "附 A：源站是否支持 TLS（用于判断 Cloudflare SSL 模式是否设错）"
+hr
+TLSC=$(curl -sk -o /dev/null -w "%{http_code}" --noproxy '*' --max-time 5 "https://127.0.0.1:${PORT}/" 2>/dev/null)
+say "  https://127.0.0.1:${PORT}/  ->  HTTP ${TLSC:-000}"
+if [ "${TLSC:-000}" = "000" ]; then
+  say "  >>> 源站【不支持 HTTPS】（明文 HTTP 服务）"
+  say "  >>> 因此 Cloudflare 的 SSL 模式【必须】是 Flexible。"
+  say "  >>> 若设成 Full / Full (strict)，Cloudflare 会用 HTTPS 回源到明文端口，"
+  say "       TLS 握手失败 → 报 521 或 525。这是 521 极常见的隐蔽原因！"
+else
+  say "  >>> 源站支持 HTTPS，SSL 模式可用 Full / Full (strict)"
+fi
+
+say ""
+say "附 B：521 原因速查（按概率排序，服务器侧已健康时只看 2、3）"
 say "  1. 应用没跑起来（pm2 里没有 gfl2-community-api）→ node start.mjs"
-say "  2. 阿里云安全组未放行 TCP ${PORT} → 控制台安全组入方向加规则"
+say "  2. Cloudflare SSL 模式不是 Flexible，而是 Full / Full(strict)"
+say "     → 用 HTTPS 回源到明文 ${PORT} 端口 → 握手失败 → 521"
+say "     → 修复：SSL/TLS → Overview → 设为 Flexible"
 say "  3. Cloudflare Origin Rule 未生效（回源仍走默认 80/443，而源站 80/443 无监听）"
-say "     → 检查规则已启用、匹配 Hostname=gflbbsapi.example.com、覆盖目标端口=${PORT}"
+say "     → 检查：规则状态为 Active/已部署、匹配 Hostname 正确、覆盖目标端口=${PORT}"
+say "     → 免费版支持端口覆盖（1-65535），前提是 DNS 记录为橙云 Proxied"
+say "  4. 阿里云安全组未放行 TCP ${PORT}（本项目实测已放行，通常不是这个）"
