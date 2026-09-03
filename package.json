@@ -1,0 +1,15 @@
+{
+  "name": "gfl2-community-api",
+  "private": true,
+  "version": "0.1.0",
+  "description": "少女前线2追放官方社区 API 轻量代理与展示项目（前端展示 + 后端管理）",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "start": "pnpm --prefix server start",
+    "selftest": "pnpm --prefix server selftest"
+  },
+  "devDependencies": {
+    "pm2": "^7.0.4"
+  }
+}

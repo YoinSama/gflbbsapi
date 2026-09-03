@@ -1,0 +1,215 @@
+# 少前2 社区 API 轻量项目
+
+少女前线2：追放官方社区（`gf2-bbs.exiliumgf.com`）的轻量 API 代理 + 展示项目。
+包含 **前端展示页** 与 **后端管理页**，后端负责模拟社区登录、托管 token、代理社区接口。
+
+## 功能
+
+- 模拟社区登录：散爆账号（手机 / 邮箱）+ 密码 → 获取并持久化 token（存服务器本地 `data/token.json`）
+- 社区接口代理：前端通过后端转发请求，token 由后端自动附加，规避浏览器 CORS
+- 前端：`/` 为管理员登录入口；`/admin` 为管理页（需管理员登录），内含社区账号登录、当前登录账户、**社区每日签到（一键签到）**、社区接口「接口演示」与任意接口 API 测试、退出登录
+  - 管理页自身有一套本地管理员账号（与社区 token 登录无关）。默认 `admin` / `123456`，**首次登录成功后强制修改账号与密码**；凭据（scrypt 哈希）存于 `server/data/admin.json`（已被 `.gitignore` 的 `data/` 忽略），建议部署后立即修改
+  - 会话（sid）持久化在 `server/data/admin.json` 的 `sessions` 字段（httpOnly Cookie 携带 sid）。进程重启 / 多进程（fork）均读同一份文件，登录态不会丢失、不会被踢；默认 7 天有效期，过期自动清理
+
+## 技术栈
+
+| 层 | 技术 |
+|----|------|
+| 后端 | Node.js + TypeScript + Hono（单进程：出 API + 托管前端静态文件） |
+| 前端 | Vue 3 + Vite（Login 登录页 + Admin 管理页，CSS 变量深浅色主题，响应式） |
+| 持久化 | 服务器本地 JSON 文件（`data/token.json`，已 gitignore） |
+| 部署 | PM2（进程守护）+ nginx（反代） |
+
+加密细节：密码先 MD5，账号与密码均用 `aes-128-cbc`（key = iv = `ENCRYPTION_KEY`）加密，
+密文 hex → base64 → URL-safe。密钥来自官方社区前端脚本，可能与版本相关。
+
+## 社区接口说明
+
+社区后端**并非** Self Community 风格的 `/api/v2/*` REST（实测：`/api/v2/user`、`/api/v2/me` 在 API 子域返回 404、在主站被 Nginx 回退到 SPA）。真实结构如下（已用真实账号实测确认）：
+
+- **API 域名**：`https://gf2-bbs-api.exiliumgf.com`（注意是 `gf2-bbs-api` 子域，不是主站 `gf2-bbs`）
+- **业务接口统一在 `/community/*` 下**
+- **获取用户资料 = `POST /community/member/info`**（必须用 POST，请求体可为 `{}`），返回 `data.user`；字段含 `nick_name / avatar / level / exp / score / fans / follows`，以及游戏相关 `game_uid / game_nick_name / game_commander_level / endless_floor / endless_rank` 等
+- 其他常用接口：`GET /community/topic/list?sort_type=2`（帖子列表）、`POST /community/task/sign_in`（签到）、`GET /community/task/get_current_sign_in_status`（今日签到状态）、`GET /community/member/score_log`（积分记录）、`GET /community/user_recommend`（推荐用户）
+
+后端 `server/src/endpoints.ts` 内置了一份**已验证的接口预设**，管理页 `/admin` 的 API 测试可直接一键填充（带 `*` 的才是待验证接口，目前无）。
+
+### 代理路径约定（必读）
+
+所有社区接口都经过后端代理 `proxy.ts`（`/api/community/*`），token 由后端自动附加。请求链路如下：
+
+```
+前端 api.proxy(method, path)
+  → fetch('/api/community' + path)          // 例如 path='/community/topic/list' 时，
+                                            // 实际请求 URL = /api/community/community/topic/list
+  → 后端 proxy.ts 剥掉前缀 /api/community/  → /community/topic/list
+  → 转发到 https://gf2-bbs-api.exiliumgf.com/community/topic/list
+```
+
+要点（容易踩坑，务必照做）：
+
+- **API 测试框里只填真实业务路径**：直接写 `/community/...`（以 `/community/` 开头），别写 `/api/community/...`。`api.proxy()` 会自动补 `/api/community` 前缀，所以前端 URL 里会出现**两段 `/community`（`/api/community/community/...`）**——这是设计如此，正常，不是 bug。
+- **预设接口已带正确前缀**：`endpoints.ts` 里的 path 都是 `/community/...` 形式，可直接用。
+- **切勿手动去掉或再加 `/community`**：如果写成 `/topic/list`（少了 `/community`），代理剥前缀后变成 `/topic/list`，上游返回 404；如果写成 `/api/community/community/topic/list`，则会变成 `/api/community/community/topic/list`（三重），同样 404。
+- **`get_month_sign_in_status` 的 `list`** 是「当月每天的签到奖励」数组（索引 `i` 对应第 `i+1` 天），元素含 `item_name / item_pic / item_count`；`sign_in_days` 为当月已签天数，`start_date / end_date` 为当月区间。注意：该接口**不返回每天是否已签的状态**，只有 `sign_in_days` 总数，因此日历里只有「今天」可结合 `get_current_sign_in_status` 的 `has_sign_in` 标记。
+
+## 目录结构
+
+```
+GFL2bbsAPI/               # 项目根目录（原 gfl2-community-api）
+├─ server/                 # Hono 后端（TypeScript）
+│  ├─ src/
+│  │  ├─ index.ts          # 入口：API 路由 + 托管前端 dist
+│  │  ├─ config.ts         # 环境变量配置
+│  │  ├─ crypto.ts         # md5 + aes-128-cbc + urlsafe base64（含自测）
+│  │  ├─ store.ts          # token 持久化
+│  │  ├─ auth.ts           # /api/auth/* 登录/状态/退出
+│  │  └─ proxy.ts          # /api/community/* 社区接口代理
+│  ├─ data/                # token.json（运行时生成，gitignore）
+│  └─ ecosystem.config.cjs # PM2 配置
+├─ web/                    # Vue 3 + Vite 前端
+│  └─ src/views/Login.vue, Admin.vue
+├─ nginx.conf.example      # nginx 反代示例
+└─ .env.example
+```
+
+## 本地开发
+
+```bash
+pnpm install
+cp .env.example .env        # 可选，默认配置即可用
+pnpm build                 # 构建前端 + 后端
+pnpm start                 # 启动（默认 http://localhost:8787）
+# 或开发模式（前后端热更新）：
+pnpm dev                   # 前端 5173，后端 8787，已配代理
+# 或一键启动（跨平台，优先用 pm2 守护，无 pm2 则退回裸 node）：
+#   Windows / Linux / macOS 通用：node start.mjs（或 ./start.mjs）
+node start.mjs
+```
+
+### 停止服务（跨平台，与 start 成对）
+
+```bash
+# 跨平台一键停止：优先 pm2 delete + pm2 save（清空 dump，避免开机/复活时回来）；无 pm2 则按命令行特征杀 node 进程
+node stop.mjs
+```
+
+### 100% 可靠方法（终端直接跑 Node 脚本，别依赖双击）
+
+`start.mjs` / `stop.mjs` 是纯 Node 脚本、跨平台通用。本项目**不再提供 `.bat` 双击启动器**（用户于 2026-09-04 主动删除了 `start.bat` / `stop.bat`——此前双击曾因 Windows 文件关联被改、或文件带「Mark of the Web」(MOTW) 不可信标记而毫无反应、连黑窗口都不弹）。最稳的方式是直接用终端跑 `node start.mjs` / `node stop.mjs`，适用于 Windows / Linux / macOS：
+
+**停止**
+```bash
+cd /path/to/GFL2bbsAPI
+node stop.mjs          # 或 Linux/macOS： ./stop.mjs
+# 验证已停：pm2 list 应看不到 gfl2-community-api；下面端口检查应「连接被拒」
+```
+
+**启动**
+```bash
+cd /path/to/GFL2bbsAPI
+node start.mjs         # 或 Linux/macOS： ./start.mjs
+# 验证已起：下面端口检查应返回 HTTP 200
+```
+
+**Windows 一行走法**（Win+R → 输入 cmd 回车 → 依次敲）：
+```
+D:
+cd \GFL2bbsAPI
+node stop.mjs      :: 停
+node start.mjs     :: 起
+```
+
+#### 端口自检（务必绕开系统代理）
+
+本机若装了 Clash / 同类代理（设了 `HTTP_PROXY` 环境变量），裸 `curl http://localhost:8787` 会被代理拦截返回**假 502**，别被骗。自检一律用：
+
+```bash
+# 绕开代理直连 localhost
+curl --noproxy localhost -s -o /dev/null -w "%{http_code}\n" http://localhost:8787/
+# PowerShell：
+(Invoke-WebRequest -Uri http://localhost:8787/ -NoProxy -UseBasicParsing -TimeoutSec 3).StatusCode
+```
+- **HTTP 200** = 服务在跑；**连接被拒 / 超时** = 已停止；**502** = 多半是代理在瞎指路，按上面加 `--noproxy` 复测。
+
+#### 双击 bat 无反应的排查
+
+1. 若日后自行加回 `.bat` 启动器遇到 MOTW 拦截：右键该 `.bat` → 属性 → 底部有「解除锁定 / Unblock」就勾上 → 确定。
+2. 若 `.bat` 被绑到编辑器导致双击只打开源码：改用终端（见上）；或把脚本里的 `node` 写死成绝对路径（如 `C:\Program Files\nodejs\node.exe`）。
+3. 想彻底绕开关联可用 `.lnk` 快捷方式（双击 `.lnk` 不受 `.bat` 关联影响，必弹窗执行）。
+
+加密逻辑自测（无需安装依赖，仅用 Node 内置 crypto）：
+
+```bash
+pnpm selftest
+```
+
+## 部署到阿里云 Ubuntu
+
+> 前置：服务器已装 Node.js 18+ 与 pnpm（`npm i -g pnpm` 或官方脚本）。本项目路径解析跨平台，无需任何 Windows 专用改动。
+
+**一键部署脚本**（推荐，自动装 Node/pnpm/pm2 + 构建 + 守护 + 开机自启，可选项配 nginx/HTTPS）：
+```bash
+chmod +x deploy-ubuntu.sh
+./deploy-ubuntu.sh                       # 仅 pm2 守护，直连 8787
+./deploy-ubuntu.sh --nginx gflbbsapi.example.com          # 额外配 nginx 反代到域名
+./deploy-ubuntu.sh --nginx gflbbsapi.example.com --ssl     # 再加 Let's Encrypt 证书
+```
+脚本需以「有 sudo 权限的普通用户」运行，代码需已上传到目标目录（默认当前目录，可用 `--dir` 指定）。详见脚本头注释。
+
+```bash
+# 1. 上传代码 / git clone 到服务器，进入项目根
+pnpm install
+pnpm rebuild esbuild        # pnpm 11 默认拦截 postinstall，需手动重建原生二进制
+pnpm build                  # 构建前端 + 后端
+
+# 2. 用 PM2 守护进程（推荐）
+pm2 start server/ecosystem.config.cjs
+pm2 save                    # 保存当前进程列表
+pm2 startup                 # 生成开机自启（按提示执行它打印的 sudo 命令）
+```
+
+### 安全组 / 防火墙
+- **直接暴露 8787**：云控制台安全组入方向放行 TCP 8787，即可 `http://公网IP:8787` 直连，个人工具够用（建议仅对自己 IP 放行）。
+- **走域名 + HTTPS（推荐）**：安全组放行 80/443，用下面 nginx 反代，对外只露 80/443，8787 不对外开放。
+- **经 Cloudflare 代理（本项目实际部署方式，见下）**：`gflbbsapi.example.com` 在 Cloudflare 的 A 记录**直接指向阿里云公网 IP**（橙云代理），Cloudflare 在源站前。安全组**放行 TCP 8787**（Cloudflare 经 Origin Rule 回源到 8787），80/443 可不开放；实例 ufw 同样放行 8787。
+
+### 经 Cloudflare 代理部署（Origin Rule 回源 8787，本项目采用）
+> 前提：域名在 Cloudflare 且 `gflbbsapi.example.com` 的 A 记录**直接指向阿里云公网 IP、且为橙云（代理）**。App 监听 `0.0.0.0:8787`（默认如此，无需改代码）。
+
+1. **服务器侧**：只需把 app 跑起来（不装 nginx、不跑 certbot）：
+   ```bash
+   ./deploy-ubuntu.sh            # 仅 pm2 守护，app 在 8787；不带 --nginx
+   ```
+2. **Cloudflare → SSL/TLS → Overview**：加密模式设为 **Flexible**（Cloudflare 终结访客 HTTPS，回源到 8787 走明文 HTTP；本项目 cookie 无 `Secure` 标志，登录不受影响）。
+3. **Cloudflare → Rules → Origin Rules**：新建规则，条件 `Hostname = gflbbsapi.example.com`，操作 **Override destination port → 8787**（免费版可用，10 条额度）。这样 Cloudflare 回源才会打到 8787（默认只回源 80/443，8787 不在代理端口列表）。
+4. **验证**：`curl -s -o /dev/null -w "%{http_code}\n" https://gflbbsapi.example.com/`（本机若走 Clash 等代理需加 `--noproxy`）。
+
+> ⚠️ 该路线下 **不要**用 `deploy-ubuntu.sh --nginx/--ssl` 里的 certbot（Cloudflare 代理会截胡 HTTP-01 校验，且背后有 Cloudflare 本就不需要 certbot）；也**不要**开 80/443。`nginx.conf.example` 仅用于「不用 Cloudflare、直接 80/443 + Let's Encrypt」的另一种部署，本路线用不到。
+> 🔒 进阶收敛：若想彻底隐藏源站，可把安全组 8787 的来源限制为 [Cloudflare 官方 IP 段](https://www.cloudflare.com/ips/)，而非 `0.0.0.0/0`。
+
+### nginx 反代（参考 nginx.conf.example，仅用于「不用 Cloudflare、直连 80/443 + Let's Encrypt」的部署）
+```bash
+sudo apt install nginx
+sudo cp nginx.conf.example /etc/nginx/sites-available/gfl2-community-api
+sudo ln -s /etc/nginx/sites-available/gflbbsapi.example.com /etc/nginx/sites-enabled/ 2>/dev/null || sudo ln -s /etc/nginx/sites-available/gfl2-community-api /etc/nginx/sites-enabled/
+# nginx.conf.example 的 server_name 已预设为 gflbbsapi.example.com，
+# 请确认 DNS 已将该域名（灰云/直连）指向本机公网 IP
+sudo nginx -t && sudo systemctl reload nginx
+# 启用 HTTPS（自动改写配置 + 续期）：
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d gflbbsapi.example.com
+```
+
+### 部署注意
+- **会话已持久化到 admin.json（文件共享）**：`ecosystem.config.cjs` 用 `instances: 1` 单进程，登录态稳；即便改 cluster 多进程（`instances: 'max'`），所有进程也读同一份 `admin.json`，请求轮询到任意进程都能识别登录态（不再被踢）。唯一残留风险是极端并发下多进程同时写 `admin.json` 可能相互覆盖会话，个人工具量级可忽略；高并发场景建议换 Redis。
+- **token 已脱敏**：所有接口只回显 `tokenMasked`，公网暴露也安全；但 `server/data/token.json`（磁盘真令牌）仍等同凭证，务必保证该目录仅运行用户可读写、不进 git。
+- **数据目录权限**：`server/data/` 被 gitignore，运行时由 `ensureDataDir()` 自动建；运行用户需对其有写权限（勿以无权限用户或只读挂载运行）。
+
+
+## 注意事项 / 风险
+
+- **账号风控**：使用第三方工具模拟登录可能违反官方用户协议，存在封号风险，请谨慎使用，建议用小号。
+- **接口可能变动**：社区登录接口域名曾于 2026-05-31 变更；若登录返回 401，优先检查 `ENCRYPTION_KEY` 是否仍是官方前端脚本里的最新值（抓包 `gf2-bbs.exiliumgf.com` 页面 JS 搜索 `Utf8.parse(...)` 即可找到）。
+- **token 安全**：`data/token.json` 等同账号凭证，切勿提交到 git 或公开。
+- **游戏进度**：社区 API 不暴露游戏服务器的真实进度；但 `POST /community/member/info` 返回的 `user` 对象里带有社区侧游戏信息（`game_commander_level` 指挥等级、`endless_floor / endless_rank` 等），可在展示页查看。其余账号内游戏进度走游戏服务器接口，不在本代理范围内，可用管理页的 API 测试自行探索。

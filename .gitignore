@@ -1,0 +1,11 @@
+node_modules/
+dist/
+server/dist/
+web/dist/
+data/
+.env
+*.log
+.DS_Store
+.obsidian/
+*.timestamp-*.mjs
+*.tsbuildinfo

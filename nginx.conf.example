@@ -1,0 +1,58 @@
+# 少前2 社区 API — nginx 反代参考配置
+#
+# 用法：
+#   1) 复制本文件到 /etc/nginx/sites-available/gfl2-community-api
+#   2) sudo ln -s /etc/nginx/sites-available/gfl2-community-api /etc/nginx/sites-enabled/
+#   3) 确认 DNS 已将 gflbbsapi.example.com 指向本机公网 IP（server_name 已预设为该域名）
+#   4) 仅 HTTP（临时测试）：sudo nginx -t && sudo systemctl reload nginx
+#   5) 启用 HTTPS（推荐，自动改配置 + 续期）：
+#        sudo apt install certbot python3-certbot-nginx
+#        sudo certbot --nginx -d gflbbsapi.example.com
+#
+# 说明：前后端同跑一个 Node 进程（端口 8787），nginx 只需反代 / 即可。
+#      本项目登录态用 httpOnly Cookie，必须带 X-Forwarded-Proto 让后端知道是 https。
+
+server {
+    # ---- HTTP：生产建议 301 跳 HTTPS（certbot 申请证书后会自动补 443 块；
+    #      若你手动只跑 HTTP，取消下面 return 注释前请先确保 443 块已存在） ----
+    listen 80;
+    server_name gflbbsapi.example.com;
+
+    # return 301 https://$host$request_uri;
+
+    client_max_body_size 1m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # 前端若以后启用 WebSocket，再打开这两行：
+        # proxy_set_header Upgrade $http_upgrade;
+        # proxy_set_header Connection "upgrade";
+        proxy_read_timeout 60s;
+    }
+}
+
+# ---- HTTPS 块（certbot 会自动生成；手动配时参考） ----
+# server {
+#     listen 443 ssl http2;
+#     server_name gflbbsapi.example.com;
+#
+#     ssl_certificate     /etc/letsencrypt/live/gflbbsapi.example.com/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/gflbbsapi.example.com/privkey.pem;
+#
+#     client_max_body_size 1m;
+#
+#     location / {
+#         proxy_pass http://127.0.0.1:8787;
+#         proxy_http_version 1.1;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto https;
+#         proxy_read_timeout 60s;
+#     }
+# }
