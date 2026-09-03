@@ -1,5 +1,8 @@
 packages:
   - 'server'
   - 'web'
+# pnpm 11 默认拦截依赖的构建脚本（postinstall）。esbuild 必须靠它安装原生二进制，
+# 否则 `pnpm install` 会以 ERR_PNPM_IGNORED_BUILDS 退出码 1（导致构建、启动全失败）。
+# ⚠️ 值必须是布尔 true/false；留任何占位文字都会被判为「忽略构建」而报错。
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true

@@ -159,8 +159,8 @@ chmod +x deploy-ubuntu.sh
 
 ```bash
 # 1. 上传代码 / git clone 到服务器，进入项目根
-pnpm install
-pnpm rebuild esbuild        # pnpm 11 默认拦截 postinstall，需手动重建原生二进制
+pnpm install                # esbuild 放行已在本项目 pnpm-workspace.yaml 配好，安装时会自动装原生二进制
+pnpm rebuild esbuild        # 保险：确保 esbuild 原生二进制就位（可省略）
 pnpm build                  # 构建前端 + 后端
 
 # 2. 用 PM2 守护进程（推荐）
@@ -168,6 +168,15 @@ pm2 start server/ecosystem.config.cjs
 pm2 save                    # 保存当前进程列表
 pm2 startup                 # 生成开机自启（按提示执行它打印的 sudo 命令）
 ```
+
+> ⚠️ **pnpm 11 构建脚本放行（重要，踩过坑）**
+> pnpm 11 起**不再读取** `package.json` 里的 `pnpm` 字段（`onlyBuiltDependencies` / `neverBuiltDependencies` 等已全部移除），构建脚本放行统一改为 `pnpm-workspace.yaml` 的 **`allowBuilds`**（包名 → `true`/`false` 映射）。同时 `strictDepBuilds` 默认为 **`true`**，未放行的依赖构建脚本会让 `pnpm install` **直接以退出码 1 失败**：
+> ```
+> [ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: esbuild@0.21.5, esbuild@0.24.2, esbuild@0.28.2
+> Run "pnpm approve-builds" to pick which dependencies should be allowed to run scripts.
+> ```
+> 而 `esbuild` 必须靠 postinstall 装原生二进制，不放行则 `esbuild`/`vite` 都跑不起来 → 构建、`node start.mjs` 全线失败。
+> **本项目已配置** `allowBuilds: { esbuild: true }`（见 `pnpm-workspace.yaml`）。⚠️ 注意该值**必须是布尔值**——pnpm 自动生成的占位文字 `set this to true or false` 会被判为「未放行」并触发上述报错；且不要把配置同时写在 `package.json`（v11 已忽略，会造成两份冲突来源）。
 
 ### 安全组 / 防火墙
 - **直接暴露 8787**：云控制台安全组入方向放行 TCP 8787，即可 `http://公网IP:8787` 直连，个人工具够用（建议仅对自己 IP 放行）。
