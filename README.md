@@ -181,6 +181,8 @@ pm2 startup                 # 生成开机自启（按提示执行它打印的 s
 
 ### 部署架构：Cloudflare 代理 → 源站直连（本项目采用）
 
+> 下文中 `gflbbsapi.example.com` 为**示例域名**，部署时请替换为你自己的域名。
+
 ```
 访客 -- HTTPS --> Cloudflare（终结 TLS / 代理 / 边缘缓存）
                         |

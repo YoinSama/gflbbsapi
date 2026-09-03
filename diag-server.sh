@@ -2,9 +2,11 @@
 # 诊断「Cloudflare 返回 521 / 域名打不开」的一键自检脚本
 # 用法（在部署服务器的项目根目录执行）：
 #   git pull && bash diag-server.sh
+#   git pull && DOMAIN=你的域名 bash diag-server.sh   # 传入域名才会核对 DNS A 记录
 # 脚本只读，不修改任何配置、不重启服务。
 
 PORT=8787
+DOMAIN="${DOMAIN:-}"
 say() { printf '%s\n' "$*"; }
 hr()  { printf '%s\n' "------------------------------------------------------------"; }
 
@@ -89,13 +91,18 @@ say "[6/7] 本机公网 IP（核对 DNS 的 A 记录是否指向这台机器）"
 hr
 PUBIP=$(curl -s --max-time 8 https://api.ipify.org 2>/dev/null || curl -s --max-time 8 https://ifconfig.me 2>/dev/null)
 say "  本机出口公网 IP: ${PUBIP:-（获取失败）}"
-say "  请核对 Cloudflare 上 gflbbsapi.example.com 的 A 记录 == 上面这个 IP"
-say "  另核对：该记录必须是【橙色云朵 Proxied】，灰色(DNS only)会使 Origin Rule 失效"
-say "  本地 DNS 解析:"
-if command -v dig >/dev/null 2>&1; then
-  dig +short gflbbsapi.example.com 2>/dev/null | sed 's/^/    /' || say "    (解析失败)"
+if [ -n "$DOMAIN" ]; then
+  say "  请核对 Cloudflare 上 ${DOMAIN} 的 A 记录 == 上面这个 IP"
+  say "  另核对：该记录必须是【橙色云朵 Proxied】，灰色(DNS only)会使 Origin Rule 失效"
+  say "  本地 DNS 解析:"
+  if command -v dig >/dev/null 2>&1; then
+    dig +short "$DOMAIN" 2>/dev/null | sed 's/^/    /' || say "    (解析失败)"
+  else
+    getent hosts "$DOMAIN" 2>/dev/null | sed 's/^/    /' || say "    (无 dig/getent 结果)"
+  fi
 else
-  getent hosts gflbbsapi.example.com 2>/dev/null | sed 's/^/    /' || say "    (无 dig/getent 结果)"
+  say "  未传入 DOMAIN，跳过 DNS 核对。"
+  say "  如需核对：DOMAIN=你的域名 bash diag-server.sh"
 fi
 
 say ""
