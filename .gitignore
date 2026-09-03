@@ -9,3 +9,5 @@ data/
 .obsidian/
 *.timestamp-*.mjs
 *.tsbuildinfo
+# WorkBuddy 沙箱 safe-delete shim 产生的 0 字节临时残留（构建/安装时会出现在项目根）
+_tmp_*
