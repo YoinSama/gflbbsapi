@@ -31,6 +31,7 @@ const akMsg = ref('');
 const akName = ref('');
 const akNote = ref('');
 const akCreated = ref<any>(null); // 刚创建的 key，高亮提示复制
+const akCopied = ref(false); // 复制按钮短暂反馈
 
 async function loadApikeys() {
   akLoading.value = true;
@@ -52,7 +53,7 @@ async function createApikey() {
     akCreated.value = r.data.key;
     akName.value = '';
     akNote.value = '';
-    akMsg.value = '已创建，请复制保存 Key';
+    akMsg.value = '已创建，请立即复制 Key 并妥善保存';
     await loadApikeys();
   } else {
     akMsg.value = (r.data && (r.data.message || r.data.Message)) || '创建失败 HTTP ' + r.status;
@@ -63,6 +64,7 @@ async function removeApikey(id: string) {
   const r = await api.adminApikeysRemove(id);
   if (r.ok) {
     akMsg.value = '已删除';
+    if (akCreated.value?.id === id) akCreated.value = null;
     await loadApikeys();
   } else {
     akMsg.value = (r.data && (r.data.message || r.data.Message)) || '删除失败 HTTP ' + r.status;
@@ -72,9 +74,14 @@ async function copyKey(k: string) {
   try {
     await navigator.clipboard.writeText(k);
     akMsg.value = '已复制到剪贴板';
+    akCopied.value = true;
+    setTimeout(() => { akCopied.value = false; }, 1500);
   } catch {
-    akMsg.value = '复制失败，请手动选中复制';
+    akMsg.value = '复制失败，请手动选中后 Ctrl+C';
   }
+}
+function dismissCreated() {
+  akCreated.value = null;
 }
 function fmtTime(iso: string): string {
   try {
@@ -405,6 +412,27 @@ onMounted(async () => {
         <button class="btn link" type="button" @click="loadApikeys">刷新</button>
       </div>
 
+      <!-- 刚创建的 Key：高亮提示并提供显眼的复制入口 -->
+      <div v-if="akCreated" class="ak-new">
+        <div class="ak-new-head">
+          <span class="ak-new-title">✓ API Key</span>
+          <span class="ak-new-hint">已创建，请立即复制并妥善保存（关闭后只能删除重建）</span>
+        </div>
+        <div class="ak-new-body">
+          <input
+            class="input ak-new-key"
+            readonly
+            :value="akCreated.key"
+            @focus="$event.target.select()"
+            title="点击或 Ctrl+C 复制"
+          />
+          <button class="btn primary" type="button" @click="copyKey(akCreated.key)">
+            {{ akCopied ? '✓ 已复制' : '复制' }}
+          </button>
+          <button class="btn" type="button" @click="dismissCreated">我已保存</button>
+        </div>
+      </div>
+
       <div v-if="akKeys.length" class="ak-table-wrap">
         <table class="ak-table">
           <thead>
@@ -420,7 +448,17 @@ onMounted(async () => {
           <tbody>
             <tr v-for="k in akKeys" :key="k.id">
               <td>{{ k.name }}</td>
-              <td><code class="ak-key" :title="k.key">{{ k.key }}</code></td>
+              <td>
+                <span class="ak-key-cell">
+                  <code class="ak-key" :title="k.key">{{ k.key }}</code>
+                  <button
+                    class="ak-copy-mini"
+                    type="button"
+                    title="复制 Key"
+                    @click="copyKey(k.key)"
+                  >复制</button>
+                </span>
+              </td>
               <td class="muted">{{ k.note || '—' }}</td>
               <td><span class="tag" :style="k.enabled ? '' : 'background:var(--danger);color:#fff'">{{ k.enabled ? '启用' : '停用' }}</span></td>
               <td class="muted" style="white-space: nowrap">{{ k.lastUsedAt ? fmtTime(k.lastUsedAt) : '从未使用' }}</td>
@@ -799,6 +837,64 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.ak-new {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface-2));
+  border-radius: var(--radius);
+}
+.ak-new-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.ak-new-title {
+  font-weight: 600;
+  color: var(--primary);
+  font-size: 14px;
+}
+.ak-new-hint {
+  color: var(--text-2);
+  font-size: 12px;
+}
+.ak-new-body {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ak-new-key {
+  flex: 1;
+  min-width: 240px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  cursor: text;
+  background: var(--surface-2);
+}
+.ak-key-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.ak-copy-mini {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.ak-copy-mini:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
 .ak-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);
