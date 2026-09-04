@@ -10,7 +10,7 @@
 #   --dir <目录>   项目代码所在目录（默认：当前目录）
 #   -h, --help     显示本帮助。
 #
-# 流程：git pull → pnpm install → 重建 esbuild → pnpm build → 重启服务 → 健康检查
+# 流程：git fetch+reset → pnpm install → 重建 esbuild → pnpm build → 重启服务 → 健康检查
 #
 # 说明：
 #   - 仅更新代码与构建产物。**不会触碰 server/data/ 下的运行时数据**
@@ -40,8 +40,13 @@ if [[ ! -f server/ecosystem.config.cjs ]]; then
 fi
 
 # ---------- 1. 拉取代码 ----------
-echo "==> git pull"
-git pull
+# 用 fetch + reset --hard 而非 git pull：
+#   仓库历史曾被 filter-repo 重写并 force push，服务器旧 clone 与新 origin/main 会分叉，
+#   git pull 会因 non-fast-forward 直接失败；reset --hard origin/main 能稳定拉到最新。
+#   server/data/（admin.json / token.json）已被 .gitignore 忽略，不受 git 操作影响。
+echo "==> git fetch + reset --hard origin/main"
+git fetch origin
+git reset --hard origin/main
 
 # ---------- 2. 安装依赖（覆盖依赖变更的情况） ----------
 echo "==> pnpm install"
