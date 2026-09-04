@@ -567,7 +567,7 @@ onMounted(async () => {
                 <text x="17" y="17" text-anchor="middle" dominant-baseline="central">{{ h.grade }}</text>
               </svg>
             </span>
-            <span class="doll-lv">lv.{{ h.lv }}</span>
+            <p class="doll-lv">lv.{{ h.lv }}</p>
           </div>
         </div>
         <p v-else class="muted">未公开人形或暂无数据。</p>
@@ -890,14 +890,11 @@ onMounted(async () => {
 .doll-lv {
   position: absolute;
   left: 0;
-  right: 0;
-  bottom: 5px;
-  z-index: 1;
-  font-size: 12px;
-  font-weight: 700;
-  color: #f26c1c;
+  bottom: 4px;
   text-align: center;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+  font-size: 12px;
+  width: 100%;
+  color: #f26c1c;
 }
 /* 椎体徽章：装饰圆底 + svg 叠数字（svg 铺满徽章，text 居中） */
 .doll .grade {
