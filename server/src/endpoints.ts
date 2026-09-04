@@ -114,12 +114,20 @@ export const endpointPresets: EndpointPreset[] = [
     note: '把 1 换成真实帖子 id（含 ?id= 参数）；有副作用，登录后手动点击',
   },
   {
+    name: '兑换物品列表',
+    method: 'GET',
+    path: '/community/item/exchange_list',
+    needsAuth: true,
+    verified: true,
+    note: '返回可兑换物品及已兑换/最大次数（exchange_count / max_exchange_count）',
+  },
+  {
     name: '兑换物品',
     method: 'POST',
     path: '/community/item/exchange',
     body: { exchange_id: 1 },
     needsAuth: true,
     verified: true,
-    note: '请求体：{"exchange_id": 1}；会消耗物品，登录后手动点击',
+    note: '请求体：{"exchange_id": 1}；会消耗积分，登录后手动点击',
   },
 ];
