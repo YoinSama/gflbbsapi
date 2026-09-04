@@ -44,7 +44,10 @@ export async function callCommunity(
 
 proxy.all('*', async (c) => {
   const u = new URL(c.req.url);
-  const path = u.pathname.replace(/^\/api\/community\/?/, '');
+  // 剥掉 /api/community 前缀后，路径必须仍以 / 开头（否则与 base 拼接成
+  // "...exiliumgf.comcommunity/..." 粘连 → DNS ENOTFOUND → 502 fetch failed）
+  const path =
+    '/' + u.pathname.replace(/^\/api\/community\/?/, '').replace(/^\/+/, '');
   const target = `${config.bbsApiBase}${path}${u.search}`;
 
   const token = (await loadToken())?.token;
