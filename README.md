@@ -202,6 +202,32 @@ node stop.mjs && node start.mjs          # 或已纳入 pm2 管理时：pm2 rest
 - **（可选）HTTPS**：直接 IP:端口走的是明文 HTTP。若调用方页面本身是 HTTPS，浏览器会因混合内容（mixed content）拦截 HTTP 请求；此类场景需自行在源站配置证书或改用服务端代发请求。个人工具 / 服务端调用可忽略。
 - **验证**：`curl -s -o /dev/null -w "%{http_code}\n" --noproxy '*' http://<服务器公网IP>:<端口>/`，返回 200 即通。
 
+### 从外部（浏览器 / 其他前端）调用本 API
+
+若要从另一个网站（如你的 Firefly 博客）的 JS 里调用本 API，需满足三点：
+
+1. **开 CORS**：设置环境变量 `CORS_ORIGINS` 为调用方来源（逗号分隔，例如 `https://your-blog.pages.dev`）。默认仅允许同源（即管理页），未配置时外部浏览器会被拦截。
+2. **加 API Key**：设置 `API_KEY`（任意字符串）。配置后，**跨域**调用 `/api/community/*` 与 `/api/tasks/*` 必须在请求头带 `x-api-key: <KEY>`（或 query `?api_key=...`），否则返回 403；同源（管理页）调用不受影响。这样即便接口暴露，他人没有 Key 也无法用你的社区账号。
+3. **上 HTTPS**：浏览器在 HTTPS 页面里调用 `http://` 接口会被判为混合内容（mixed content）而拦截。推荐用 Cloudflare 给源站套一层 HTTPS（域名 A 记录 → 源站 IP:端口，SSL 模式 Full），或用 Caddy / Let's Encrypt 在源站配证书。
+
+外部调用示例（浏览器 `fetch`）：
+
+```js
+const API = 'https://你的API域名';   // 必为 HTTPS
+const KEY = '你的API_KEY';
+// 读取社区个人信息（注意双写 /community 路径）
+const r = await fetch(API + '/api/community/community/member/info', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', 'x-api-key': KEY },
+  body: '{}',
+});
+const data = await r.json();
+```
+
+- 路径约定同管理页：**业务路径写 `/community/...`，前端拼接后变成 `/api/community/community/...`**（详见上文「代理路径约定」）。
+- 服务器安全组需放行应用端口到调用方出口 IP（若走 Cloudflare，则放行 Cloudflare 的 IP 段）。
+- token 由服务器自动附加，调用方无需也不应持有 token；token 有效性依赖服务端登录态，刷新请在管理页操作。
+
 ### 部署注意
 - **会话已持久化到 admin.json（文件共享）**：`ecosystem.config.cjs` 用 `instances: 1` 单进程，登录态稳；即便改 cluster 多进程（`instances: 'max'`），所有进程也读同一份 `admin.json`，请求轮询到任意进程都能识别登录态（不再被踢）。唯一残留风险是极端并发下多进程同时写 `admin.json` 可能相互覆盖会话，个人工具量级可忽略；高并发场景建议换 Redis。
 - **token 已脱敏**：所有接口只回显 `tokenMasked`，公网暴露也安全；但 `server/data/token.json`（磁盘真令牌）仍等同凭证，务必保证该目录仅运行用户可读写、不进 git。
