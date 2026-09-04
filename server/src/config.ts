@@ -41,9 +41,8 @@ export const config = {
   // 登录加密密钥（来自官方社区前端脚本，AES-128-CBC 的 key 与 iv）
   encryptionKey: process.env.ENCRYPTION_KEY || 'a86a86^oH$04r6A1',
   port: Number(process.env.PORT || 8787),
-  // 对外暴露时的安全与跨域配置
-  apiKey: process.env.API_KEY || '', // 非空时，跨域调用 /api/community、/api/tasks 必须带 x-api-key
-  corsOrigins: process.env.CORS_ORIGINS || '', // 允许的跨域来源（逗号分隔）；默认仅同源（管理页）可用
+  // 允许的跨域来源（逗号分隔）；默认仅同源（管理页）可用
+  corsOrigins: process.env.CORS_ORIGINS || '',
   // 前端构建产物目录（后端会托管它）
   webDist: resolve(serverRoot, process.env.WEB_DIST || '../web/dist'),
   // 运行时数据目录（token 存这里）

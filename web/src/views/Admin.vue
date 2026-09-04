@@ -24,6 +24,66 @@ async function doAdminLogout() {
   router.replace('/');
 }
 
+// ---------- API Key 管理（多 key，供博客等服务端调用，须带 x-api-key） ----------
+const akKeys = ref<any[]>([]);
+const akLoading = ref(false);
+const akMsg = ref('');
+const akName = ref('');
+const akNote = ref('');
+const akCreated = ref<any>(null); // 刚创建的 key，高亮提示复制
+
+async function loadApikeys() {
+  akLoading.value = true;
+  akMsg.value = '';
+  const r = await api.adminApikeysList();
+  akLoading.value = false;
+  if (r.ok && Array.isArray(r.data?.keys)) akKeys.value = r.data.keys;
+  else akMsg.value = (r.data && (r.data.message || r.data.Message)) || '加载失败 HTTP ' + r.status;
+}
+async function createApikey() {
+  const name = akName.value.trim();
+  if (!name) {
+    akMsg.value = '请填写名称';
+    return;
+  }
+  akMsg.value = '';
+  const r = await api.adminApikeysCreate(name, akNote.value.trim() || undefined);
+  if (r.ok && r.data?.key) {
+    akCreated.value = r.data.key;
+    akName.value = '';
+    akNote.value = '';
+    akMsg.value = '已创建，请复制保存 Key';
+    await loadApikeys();
+  } else {
+    akMsg.value = (r.data && (r.data.message || r.data.Message)) || '创建失败 HTTP ' + r.status;
+  }
+}
+async function removeApikey(id: string) {
+  if (!confirm('删除后该 Key 立即失效，博客调用将返回 403。确定删除？')) return;
+  const r = await api.adminApikeysRemove(id);
+  if (r.ok) {
+    akMsg.value = '已删除';
+    await loadApikeys();
+  } else {
+    akMsg.value = (r.data && (r.data.message || r.data.Message)) || '删除失败 HTTP ' + r.status;
+  }
+}
+async function copyKey(k: string) {
+  try {
+    await navigator.clipboard.writeText(k);
+    akMsg.value = '已复制到剪贴板';
+  } catch {
+    akMsg.value = '复制失败，请手动选中复制';
+  }
+}
+function fmtTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('zh-CN', { hour12: false });
+  } catch {
+    return iso;
+  }
+}
+
 // ---------- 社区 token 登录 + 状态 ----------
 const account = ref('');
 const password = ref('');
@@ -309,6 +369,7 @@ onMounted(async () => {
   if (!admin.value.loggedIn) return;
   await loadStatus();
   await loadPresets();
+  await loadApikeys();
   // 登录社区账号后默认预填充第一个预设（方法 / URL含参数 / 请求体）
   if (presets.value.length) applyPreset(presets.value[0]);
 });
@@ -322,6 +383,58 @@ onMounted(async () => {
         <button class="btn" @click="doAdminLogout">退出管理员登录</button>
       </div>
       <p class="muted">当前管理员：{{ admin.username }}</p>
+    </div>
+
+    <!-- API Key 管理：供博客等服务端调用外部接口时必须携带的密钥 -->
+    <div class="card">
+      <h3 style="margin-top: 0">API Key 管理</h3>
+      <p class="muted">
+        供 <code>/api/community/*</code>、<code>/api/tasks/*</code> 的外部调用（如博客服务端 fetch）。
+        调用时必须带请求头 <code>x-api-key: &lt;KEY&gt;</code>（或 query <code>?api_key=</code>）；已登录管理页不受限制。
+      </p>
+
+      <div class="row" style="margin-bottom: 10px; gap: 8px; max-width: 560px">
+        <input class="input" v-model="akName" placeholder="名称，如 Firefly博客" style="flex: 1" />
+        <input class="input" v-model="akNote" placeholder="备注（可选）" style="flex: 1" />
+        <button class="btn primary" @click="createApikey" :disabled="akLoading">
+          {{ akLoading ? '创建中…' : '创建 Key' }}
+        </button>
+      </div>
+      <div class="row" style="gap: 8px; margin-bottom: 10px">
+        <span :class="akMsg ? 'tag' : 'muted'">{{ akMsg || '下方为已有 Key，可复制到博客配置' }}</span>
+        <button class="btn link" type="button" @click="loadApikeys">刷新</button>
+      </div>
+
+      <div v-if="akKeys.length" class="ak-table-wrap">
+        <table class="ak-table">
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th>API Key</th>
+              <th>备注</th>
+              <th>状态</th>
+              <th>最后使用</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="k in akKeys" :key="k.id">
+              <td>{{ k.name }}</td>
+              <td><code class="ak-key" :title="k.key">{{ k.key }}</code></td>
+              <td class="muted">{{ k.note || '—' }}</td>
+              <td><span class="tag" :style="k.enabled ? '' : 'background:var(--danger);color:#fff'">{{ k.enabled ? '启用' : '停用' }}</span></td>
+              <td class="muted" style="white-space: nowrap">{{ k.lastUsedAt ? fmtTime(k.lastUsedAt) : '从未使用' }}</td>
+              <td>
+                <div class="row" style="gap: 6px">
+                  <button class="btn link" type="button" @click="copyKey(k.key)">复制</button>
+                  <button class="btn link" type="button" style="color: var(--danger)" @click="removeApikey(k.id)">删除</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p v-else class="muted">还没有 API Key，先在博客配置前创建一把。</p>
     </div>
 
     <!-- 社区账号：未登录显示登录模块；登录后隐藏并改为已登录状态 + 登出 -->
@@ -686,6 +799,39 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.ak-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.ak-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ak-table th,
+.ak-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.ak-table tr:last-child td {
+  border-bottom: none;
+}
+.ak-table th {
+  font-size: 12px;
+  color: var(--text-2);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ak-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+}
 .json-box {
   margin-top: 10px;
   background: var(--surface-2);

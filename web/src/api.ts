@@ -36,6 +36,11 @@ export const api = {
   adminChange: (oldPassword: string, newUsername: string, newPassword: string) =>
     request('POST', '/api/admin/change', { oldPassword, newUsername, newPassword }),
   adminLogout: () => request('POST', '/api/admin/logout'),
+  // 多 API Key 管理（管理页，管理员会话保护）
+  adminApikeysList: () => request('GET', '/api/admin/apikeys'),
+  adminApikeysCreate: (name: string, note?: string) =>
+    request('POST', '/api/admin/apikeys', { name, note }),
+  adminApikeysRemove: (id: string) => request('DELETE', '/api/admin/apikeys/' + id),
   // 通过后端代理调用社区接口，token 由后端自动附加
   proxy: (method: string, path: string, body?: unknown) =>
     request(method, '/api/community' + (path.startsWith('/') ? path : '/' + path), body),

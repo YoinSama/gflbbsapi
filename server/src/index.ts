@@ -6,7 +6,8 @@ import { extname, join, resolve } from 'node:path';
 import { config } from './config';
 import { auth } from './auth';
 import { proxy } from './proxy';
-import { admin } from './admin';
+import { admin, getSession } from './admin';
+import { findValidKey } from './apikeys';
 import { endpointPresets } from './endpoints';
 import { tasks } from './tasks';
 
@@ -43,29 +44,17 @@ app.use('/api/*', async (c: Context, next: Next) => {
   await next();
 });
 
-// ---------- API Key 守卫（跨域调用代理/任务接口必须带 x-api-key）----------
+// ---------- API Key 守卫（所有外部调用必须带有效 x-api-key / ?api_key=）----------
 app.use('/api/community/*', apiKeyGuard);
 app.use('/api/tasks/*', apiKeyGuard);
 
 async function apiKeyGuard(c: Context, next: Next) {
   if (c.req.method === 'OPTIONS') return next();
-  const cfgKey = config.apiKey;
-  if (!cfgKey) return next(); // 未配置 API_KEY 时向后兼容，不校验
-  const origin = c.req.header('Origin');
-  const reqHost = new URL(c.req.url).host;
-  if (origin) {
-    let oHost = '';
-    try {
-      oHost = new URL(origin).host;
-    } catch {
-      /* ignore */
-    }
-    if (oHost === reqHost) return next(); // 同源（管理页）放行
-  } else {
-    return next(); // 无 Origin 的服务端调用放行
-  }
+  // 管理页（已登录管理员、浏览器同源携带 admin_sid cookie）豁免
+  if (getSession(c)) return next();
+  // 其余一律视为外部调用：无论是否带 Origin 都必须携带有效 API Key
   const provided = c.req.header('x-api-key') || c.req.query('api_key') || '';
-  if (provided === cfgKey) return next();
+  if (provided && findValidKey(provided)) return next();
   return c.json({ ok: false, message: '未授权：缺少或错误的 API Key' }, 403);
 }
 

@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config';
+import { createKey, listKeys, removeKey } from './apikeys';
 
 /**
  * 本地管理员鉴权（用于网关「管理页」）。
@@ -112,7 +113,7 @@ function setCookie(c: any, name: string, value: string, maxAge: number): void {
   );
 }
 
-function getSession(c: any): string | undefined {
+export function getSession(c: any): string | undefined {
   const sid = getCookie(c, 'admin_sid');
   if (!sid) return undefined;
   const rec = loadAdmin();
@@ -201,4 +202,33 @@ admin.post('/logout', (c) => {
   }
   setCookie(c, 'admin_sid', '', 0);
   return c.json({ ok: true, message: '已退出' });
+});
+
+// ---------- API Key 管理（仅已登录管理员可操作）----------
+
+function requireAdmin(c: any): { ok: boolean; rec?: AdminRecord } {
+  if (!getSession(c)) return { ok: false };
+  return { ok: true, rec: loadAdmin() };
+}
+
+admin.get('/apikeys', (c) => {
+  if (!requireAdmin(c).ok) return c.json({ ok: false, message: '未登录' }, 401);
+  return c.json({ ok: true, keys: listKeys() });
+});
+
+admin.post('/apikeys', async (c) => {
+  if (!requireAdmin(c).ok) return c.json({ ok: false, message: '未登录' }, 401);
+  const body = (await c.req.json().catch(() => ({}))) as { name?: string; note?: string };
+  const name = body.name?.trim();
+  if (!name) return c.json({ ok: false, message: '缺少名称' }, 400);
+  const rec = createKey({ name, note: body.note });
+  return c.json({ ok: true, key: rec });
+});
+
+admin.delete('/apikeys/:id', (c) => {
+  if (!requireAdmin(c).ok) return c.json({ ok: false, message: '未登录' }, 401);
+  const id = c.req.param('id');
+  const removed = removeKey(id);
+  if (!removed) return c.json({ ok: false, message: '未找到该 Key' }, 404);
+  return c.json({ ok: true, message: '已删除' });
 });
