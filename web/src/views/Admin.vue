@@ -150,12 +150,12 @@ function flattenStages(stageInfo: any): { key: string; item: any }[] {
 }
 
 /** 单条战绩 → [(指标名, 值)] 行；stage_name 缺失时按字段猜指标名 */
-function stageLines(item: any): [string, string][] {
+function stageLines(item: any, key?: string): [string, string][] {
   const has = (x: any) => x !== null && x !== undefined && x !== '';
   const n = (x: any) => String(x);
   if (has(item.stage_name)) {
     let val = '';
-    if (has(item.complete_percent)) val = n(item.complete_percent);
+    if (has(item.complete_percent)) val = n(item.complete_percent) + (key === 'tower_stage' ? '%' : '');
     else if (has(item.max_score)) val = n(item.max_score);
     else if (has(item.stay_stage)) val = '停留 ' + n(item.stay_stage);
     return val ? [[item.stage_name, val]] : [];
@@ -184,7 +184,7 @@ const stageTotal = computed(() => gameStageGroups.value.reduce((n, g) => n + g.i
 
 /** 战绩第二行说明文字：把 stageLines 拼成「指标 数值 · …」，无指标时退回关卡代码 */
 function stageCaption(s: { key: string; item: any }): string {
-  const pairs = stageLines(s.item);
+  const pairs = stageLines(s.item, s.key);
   if (!pairs.length) return s.item.stage_code || '';
   return pairs.map(([k, v]) => (v ? `${k} ${v}` : k)).join(' · ');
 }
@@ -591,8 +591,15 @@ onMounted(async () => {
                 <div class="stage-cap">
                   <p class="stage-name">{{ s.item.name || s.key }}</p>
                   <div class="stage-metric">
-                    <span v-if="s.item.stage_code" class="stage-chip">{{ s.item.stage_code }}</span>
-                    <span v-if="stageCaption(s)" class="stage-caption">{{ stageCaption(s) }}</span>
+                    <template v-if="s.key === 'kuobian_stage'">
+                      <span v-if="s.item.stage_code" class="stage-chip">{{ s.item.stage_code }}</span>
+                      <span v-if="s.item.stage_name" class="stage-caption">{{ s.item.stage_name }}</span>
+                      <span v-if="!s.item.stage_code && !s.item.stage_name" class="stage-caption stage-muted">暂未参与</span>
+                    </template>
+                    <template v-else>
+                      <span v-if="s.item.stage_code" class="stage-chip">{{ s.item.stage_code }}</span>
+                      <span v-if="stageCaption(s)" class="stage-caption">{{ stageCaption(s) }}</span>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -849,7 +856,7 @@ onMounted(async () => {
   gap: 10px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 4px 2px 10px;
+  padding: 4px 2px 16px;
   scroll-snap-type: x proximity;
 }
 .dolls::-webkit-scrollbar {
@@ -857,14 +864,26 @@ onMounted(async () => {
 }
 .doll {
   position: relative;
+  z-index: 0;
   flex: 0 0 auto;
   width: 92px;
   height: 138px;
   border-radius: 10px;
-  overflow: hidden;
   background: var(--surface-2);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border);
   scroll-snap-align: start;
+}
+/* 渲染在 img 后的方向性投影：右重左轻渐变 + 偏右下位移 + 模糊，露在卡片右/下边缘 */
+.doll::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: 14px;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.3));
+  filter: blur(7px);
+  transform: translate(5px, 4px);
+  pointer-events: none;
 }
 .doll img {
   position: absolute;
@@ -875,26 +894,22 @@ onMounted(async () => {
   object-fit: cover;
   object-position: top center;
   display: block;
-}
-.doll::after {
-  /* 底部渐变，让叠加文字可读 */
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 36%;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.72));
-  pointer-events: none;
+  border-radius: 10px;
+  z-index: 1;
 }
 .doll-lv {
   position: absolute;
   left: 0;
-  bottom: 4px;
+  right: 0;
+  bottom: 1px;
+  margin: 0;
+  z-index: 2;
   text-align: center;
   font-size: 12px;
-  width: 100%;
+  font-weight: 600;
+  line-height: 1.3;
   color: #f26c1c;
+  pointer-events: none;
 }
 /* 椎体徽章：装饰圆底 + svg 叠数字（svg 铺满徽章，text 居中） */
 .doll .grade {
@@ -954,6 +969,11 @@ onMounted(async () => {
   margin-bottom: 0;
   scroll-snap-align: start;
 }
+.stage-scroll .stage-cap {
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
 .stage-list .stage-card {
   margin-bottom: 0;
 }
@@ -985,8 +1005,7 @@ onMounted(async () => {
 .stage-cap {
   position: absolute;
   right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
+  bottom: 10px;
   z-index: 1;
   max-width: 72%;
   text-align: right;
@@ -1024,6 +1043,11 @@ onMounted(async () => {
 }
 .stage-caption {
   text-align: right;
+}
+.stage-muted {
+  color: #c2c8d2;
+  font-weight: 500;
+  opacity: 0.85;
 }
 .theme-grid {
   display: grid;
