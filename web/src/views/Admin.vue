@@ -225,6 +225,32 @@ async function doSignIn() {
   }
 }
 
+// ---------- 每日任务 + 自动兑换（服务端一键编排） ----------
+const taskState = ref<'idle' | 'loading' | 'done'>('idle');
+const taskMsg = ref('');
+const taskOk = ref(false);
+const taskResult = ref<any>(null);
+const taskDetailOpen = ref(false);
+async function runTasks() {
+  if (!status.value?.loggedIn) {
+    taskMsg.value = '请先登录社区账号';
+    return;
+  }
+  taskState.value = 'loading';
+  taskMsg.value = '';
+  taskResult.value = null;
+  const r = await api.runTasks();
+  taskState.value = 'done';
+  taskResult.value = r.data ?? { message: r.data };
+  if (r.ok && r.data?.ok) {
+    taskOk.value = true;
+    taskMsg.value = r.data.message || '全部任务完成';
+  } else {
+    taskOk.value = false;
+    taskMsg.value = (r.data && (r.data.message || r.data.Message)) || '请求失败 · HTTP ' + r.status;
+  }
+}
+
 // ---------- 本月签到日历 ----------
 const calState = ref<'idle' | 'loading' | 'done'>('idle');
 const calErr = ref('');
@@ -383,6 +409,59 @@ onMounted(async () => {
               </div>
             </template>
           </div>
+        </div>
+      </div>
+    </div>
+    <!-- 每日任务 + 自动兑换：浏览3帖 → 点赞3帖 → 分享1帖 → 自动兑换（仅社区已登录时显示） -->
+    <div class="card" v-if="status?.loggedIn">
+      <h3 style="margin-top: 0">社区任务 &amp; 自动兑换</h3>
+      <p class="muted">
+        一键执行：拉取最新帖子 → 浏览 3 帖 → 点赞 3 帖 → 分享 1 帖 → 自动兑换可兑换物品。
+        所有步骤在服务端依次完成，下方列出每一步结果。
+      </p>
+      <div class="row" style="margin-bottom: 8px">
+        <button class="btn primary" @click="runTasks" :disabled="taskState === 'loading'">
+          {{ taskState === 'loading' ? '执行中…' : '执行每日任务并自动兑换' }}
+        </button>
+        <span :class="taskOk ? 'tag' : 'muted'">{{ taskMsg }}</span>
+      </div>
+
+      <div v-if="taskResult" class="task-result">
+        <ul v-if="taskResult.steps" class="task-steps">
+          <li v-for="(s, i) in taskResult.steps" :key="i" :class="s.ok ? 'ok' : 'fail'">
+            <span class="dot">{{ s.ok ? '✓' : '✗' }}</span>
+            <span class="step-name">{{ s.name }}</span>
+            <span class="step-detail">{{ s.detail }}</span>
+          </li>
+        </ul>
+
+        <template v-if="taskResult.exchange">
+          <p class="muted" style="margin: 10px 0 4px; font-size: 13px">
+            自动兑换：{{ taskResult.exchange.eligibleCount }} 项可兑换 ·
+            共 {{ taskResult.exchange.totalTimes }} 次 ·
+            预计消耗 {{ taskResult.exchange.totalCost }} 积分
+          </p>
+          <div v-if="taskResult.exchange.details.length" class="exchange-list">
+            <div
+              v-for="(d, i) in taskResult.exchange.details"
+              :key="i"
+              class="exchange-item"
+              :class="d.code === 0 ? 'ok' : 'fail'"
+            >
+              <span class="dot">{{ d.code === 0 ? '✓' : '✗' }}</span>
+              <span class="step-name">{{ d.item }}</span>
+              <span class="step-detail">#{{ d.seq }} → Code={{ d.code }}{{ d.msg ? ' ' + d.msg : '' }}</span>
+            </div>
+          </div>
+        </template>
+
+        <div class="row" style="margin-top: 8px">
+          <button class="btn link" type="button" @click="taskDetailOpen = !taskDetailOpen">
+            {{ taskDetailOpen ? '收起原始 JSON ▲' : '展开原始 JSON ▼' }}
+          </button>
+        </div>
+        <div v-show="taskDetailOpen" class="json-box" :class="{ err: !taskOk }">
+          <JsonTree :data="taskResult" />
         </div>
       </div>
     </div>
@@ -792,6 +871,46 @@ onMounted(async () => {
 .btn.link:disabled {
   color: var(--text-2);
   opacity: 1;
+}
+/* ---------- 每日任务 + 自动兑换结果 ---------- */
+.task-steps,
+.exchange-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: grid;
+  gap: 6px;
+}
+.task-steps li,
+.exchange-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.task-steps .dot,
+.exchange-item .dot {
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+.task-steps li.ok .dot,
+.exchange-item.ok .dot {
+  color: var(--primary);
+}
+.task-steps li.fail .dot,
+.exchange-item.fail .dot {
+  color: var(--danger);
+}
+.step-name {
+  font-weight: 600;
+  color: var(--text);
+  flex: 0 0 auto;
+  min-width: 96px;
+}
+.step-detail {
+  color: var(--text-2);
+  word-break: break-all;
 }
 .cal-sm {
   gap: 5px;

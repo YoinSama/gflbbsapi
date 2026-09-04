@@ -39,4 +39,6 @@ export const api = {
   // 通过后端代理调用社区接口，token 由后端自动附加
   proxy: (method: string, path: string, body?: unknown) =>
     request(method, '/api/community' + (path.startsWith('/') ? path : '/' + path), body),
+  // 一键社区任务 + 自动兑换（浏览3/点赞3/分享1 → 自动兑换），服务端编排
+  runTasks: () => request('POST', '/api/tasks/run'),
 };

@@ -8,6 +8,7 @@ import { auth } from './auth';
 import { proxy } from './proxy';
 import { admin } from './admin';
 import { endpointPresets } from './endpoints';
+import { tasks } from './tasks';
 
 const app = new Hono();
 
@@ -16,6 +17,7 @@ app.get('/api/endpoints', (c) => c.json(endpointPresets));
 app.route('/api/auth', auth);
 app.route('/api/admin', admin);
 app.route('/api/community', proxy);
+app.route('/api/tasks', tasks);
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
