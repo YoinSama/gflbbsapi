@@ -172,6 +172,24 @@ pm2 save                    # 保存当前进程列表
 pm2 startup                 # 生成开机自启（按提示执行它打印的 sudo 命令）
 ```
 
+### 更新已部署的服务
+
+代码有更新（`dist/` 构建产物不入 git，服务器上必须重新构建才生效）时，在项目根目录执行：
+
+```bash
+./update-ubuntu.sh                       # git pull → pnpm install → build → 重启 → 健康检查
+./update-ubuntu.sh --dir /path/to/project  # 指定项目目录
+```
+
+或手动执行等价步骤：
+
+```bash
+git pull && pnpm install && pnpm rebuild esbuild && pnpm build
+node stop.mjs && node start.mjs          # 或已纳入 pm2 管理时：pm2 restart gfl2-community-api --update-env && pm2 save
+```
+
+> 更新脚本**只动代码与构建产物**，不会覆盖 `server/data/` 下的运行时数据（`admin.json` / `token.json` 均被 `.gitignore` 忽略，git pull 不会碰它们）。脚本末尾会自动从 `server/ecosystem.config.cjs` 读取应用端口做一次本地健康检查，输出 `✅ 服务正常` 即表示更新完成。
+
 > ⚠️ **pnpm 11 构建脚本放行（重要，踩过坑）**
 > pnpm 11 起**不再读取** `package.json` 里的 `pnpm` 字段（`onlyBuiltDependencies` / `neverBuiltDependencies` 等已全部移除），构建脚本放行统一改为 `pnpm-workspace.yaml` 的 **`allowBuilds`**（包名 → `true`/`false` 映射）。同时 `strictDepBuilds` 默认为 **`true`**，未放行的依赖构建脚本会让 `pnpm install` **直接以退出码 1 失败**：
 > ```
