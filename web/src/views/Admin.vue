@@ -58,6 +58,7 @@ const mResult = ref<any>(null);
 const mErr = ref('');
 const mLoading = ref(false);
 const mStatus = ref<number | null>(null);
+const mOpen = ref(true);
 
 async function sendProxy() {
   mLoading.value = true;
@@ -91,22 +92,11 @@ async function loadPresets() {
 function applyPreset(p: any) {
   mMethod.value = p.method;
   mPath.value = p.path;
+  // 预填充请求体（POST 等需要 body 的接口）；GET 清空
+  mBody.value = p.body && typeof p.body === 'object' ? JSON.stringify(p.body, null, 2) : '';
 }
 
 // ---------- 接口演示（融合原展示页） ----------
-const topics = ref<any>(null);
-const topicsErr = ref('');
-const topicsLoading = ref(false);
-async function loadTopics() {
-  topicsLoading.value = true;
-  topicsErr.value = '';
-  topics.value = null;
-  const r = await api.proxy('GET', '/community/topic/list?sort_type=2');
-  topicsLoading.value = false;
-  if (r.ok) topics.value = r.data;
-  else topicsErr.value = r.data;
-}
-
 const userInfo = ref<any>(null);
 const userErr = ref('');
 const userLoading = ref(false);
@@ -293,6 +283,8 @@ onMounted(async () => {
   if (!admin.value.loggedIn) return;
   await loadStatus();
   await loadPresets();
+  // 登录社区账号后默认预填充第一个预设（方法 / URL含参数 / 请求体）
+  if (presets.value.length) applyPreset(presets.value[0]);
 });
 </script>
 
@@ -395,8 +387,8 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- API 测试 + 接口演示（融合原展示页） -->
-    <div class="card">
+    <!-- API 测试 + 接口演示（融合原展示页）：未登录社区账号时不显示 -->
+    <div class="card" v-if="status?.loggedIn">
       <h3 style="margin-top: 0">API 测试</h3>
       <p class="muted">
         通过后端代理直接调用社区接口，token 由后端自动附加。<span style="opacity: 0.7">点击预设可快速填充，带 * 为待验证接口。</span>
@@ -432,41 +424,23 @@ onMounted(async () => {
           <span class="tag" :style="mErr ? 'background:var(--danger);color:#fff' : ''">
             {{ mErr ? '失败' : '成功' }} · HTTP {{ mStatus }}
           </span>
-          <span class="muted">{{ mErr ? '返回内容如下' : '返回内容（点击 ▸ 可展开/收起）' }}</span>
+          <button class="btn link" type="button" style="margin-left: auto" @click="mOpen = !mOpen">
+            {{ mOpen ? '收起 ▲' : '展开 ▼' }}
+          </button>
         </div>
-        <JsonTree v-if="mResult" :data="mResult" />
-        <JsonTree v-else :data="mErr" />
+        <JsonTree v-if="mResult && mOpen" :data="mResult" />
+        <JsonTree v-else-if="mErr && mOpen" :data="mErr" />
       </div>
 
       <h3 style="margin-top: 22px">接口演示</h3>
       <p class="muted">下面是从社区 API 拉取的真实数据演示（需先登录社区账号）。</p>
       <div class="row" style="margin-bottom: 10px">
-        <button class="btn primary" @click="loadTopics" :disabled="topicsLoading">
-          {{ topicsLoading ? '请求中…' : (topics ? '刷新最新帖子列表' : '获取最新帖子列表') }}
-        </button>
         <button class="btn primary" v-if="status?.loggedIn" @click="loadUser" :disabled="userLoading">
           {{ userLoading ? '请求中…' : (userInfo ? '刷新用户资料' : '获取用户资料') }}
         </button>
         <button class="btn primary" v-if="status?.loggedIn" @click="loadGame" :disabled="gameLoading">
           {{ gameLoading ? '请求中…' : (gameInfo ? '刷新游戏资料' : '获取游戏资料') }}
         </button>
-      </div>
-
-      <div v-if="topics" class="json-box">
-        <div class="row" style="margin-bottom: 8px">
-          <span class="tag">最新帖子列表</span>
-        </div>
-        <JsonTree :data="topics" />
-      </div>
-      <div v-if="topicsErr" class="json-box err">
-        <div class="row" style="margin-bottom: 8px">
-          <span class="tag" style="background:var(--danger);color:#fff">失败</span>
-        </div>
-        <JsonTree :data="topicsErr" />
-      </div>
-
-      <div v-if="!status?.loggedIn" class="muted" style="margin-top: 10px">
-        尚未登录社区账号，登录后可查看「用户资料」「游戏资料」演示。
       </div>
 
       <div v-if="userInfo" class="profile">
