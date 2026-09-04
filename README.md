@@ -3,7 +3,7 @@
 >
 > **代码未经充分审计、无任何担保，作者不承担使用后果。** 使用本项目即视为接受以下风险：
 >
-> - **封号风险**：项目通过模拟登录调用少女前线2：追放社区的非公开接口，可能违反官方用户协议，导致账号被封禁。**强烈建议使用小号。**
+> - **封号风险**：项目通过模拟登录调用 gf2 社区的非公开接口，可能违反官方用户协议，导致账号被封禁。**强烈建议使用小号。**
 > - **仅供学习**：用于理解接口鉴权、加密与代理转发，**禁止用于商业用途、公开分发、批量爬取或任何违反官方条款的行为**。
 > - **凭据自担**：若部署到公网，请自行确认 token 等敏感信息已脱敏、访问控制已配置妥当。
 >
@@ -11,14 +11,14 @@
 
 ---
 
-# 少前2 社区 API 轻量项目
+# gf2 社区 API 轻量项目
 
-少女前线2：追放官方社区（`gf2-bbs.exiliumgf.com`）的轻量 API 代理 + 展示项目。
+gf2 官方社区的轻量 API 代理 + 展示项目。
 包含 **前端展示页** 与 **后端管理页**，后端负责模拟社区登录、托管 token、代理社区接口。
 
 ## 功能
 
-- 模拟社区登录：散爆账号（手机 / 邮箱）+ 密码 → 获取并持久化 token（存服务器本地 `data/token.json`）
+- 模拟社区登录：sbg 账号（手机 / 邮箱）+ 密码 → 获取并持久化 token（存服务器本地 `data/token.json`）
 - 社区接口代理：前端通过后端转发请求，token 由后端自动附加，规避浏览器 CORS
 - 前端：`/` 为管理员登录入口；`/admin` 为管理页（需管理员登录），内含社区账号登录、当前登录账户、**社区每日签到（一键签到）**、社区接口「接口演示」与任意接口 API 测试、退出登录
   - 管理页自身有一套本地管理员账号（与社区 token 登录无关）。初始凭据 `admin` / `123456`，**首次登录成功后强制修改账号与密码**；凭据（scrypt 哈希）存于 `server/data/admin.json`（已被 `.gitignore` 的 `data/` 忽略），建议部署后立即修改
@@ -40,39 +40,23 @@
 
 ## 社区接口说明
 
-社区后端**并非** Self Community 风格的 `/api/v2/*` REST（实测：`/api/v2/user`、`/api/v2/me` 在 API 子域返回 404、在主站被回退到 SPA 页面）。真实结构如下（已用真实账号实测确认）：
-
-- **API 域名**：`https://gf2-bbs-api.exiliumgf.com`（注意是 `gf2-bbs-api` 子域，不是主站 `gf2-bbs`）
-- **业务接口统一在 `/community/*` 下**
-- **获取用户资料 = `POST /community/member/info`**（必须用 POST，请求体可为 `{}`），返回 `data.user`；字段含 `nick_name / avatar / level / exp / score / fans / follows`，以及游戏相关 `game_uid / game_nick_name / game_commander_level / endless_floor / endless_rank` 等
-- **游戏资料 = `POST /community/game/info`**（请求体可为 `{}`；管理页「接口演示」的「获取游戏资料」即调用它展示），返回 `data`：
-  - `user_info`：基础资料（头像 / 昵称 / 游戏 UID / 公会 / 指挥等级）
-  - `base_info`：游戏统计（主线进度 `main_stage`、人形数、活跃天数、皮肤、武器、成就）
-  - `hero_list`：**展示人形（恰 8 名，前端即按此展示）**，含 `name` 名称 / `lv` 等级 / `grade` 椎体 / `skin` 皮肤图 / `rank` 星级 / `show_pic` 等
-  - `stage_info`：游戏战绩（异位冲突 / 迭代回廊 / 尘烟前线 / 拓界征途 / 峰值推定 / 要塞伯爵 等玩法，每项含模式名 + 指标名 + 数值）
-  - `theme_info`：主题档案（收藏完成度）
-- 其他常用接口：`GET /community/topic/list?sort_type=2`（帖子列表）、`POST /community/task/sign_in`（签到）、`GET /community/task/get_current_sign_in_status`（今日签到状态）、`GET /community/member/score_log`（积分记录）、`GET /community/user_recommend`（推荐用户）
-
-后端 `server/src/endpoints.ts` 内置了一份**已验证的接口预设**，管理页 `/admin` 的 API 测试可直接一键填充（带 `*` 的才是待验证接口，目前无）。
+后端 `server/src/endpoints.ts` 内置了一份**已验证的接口预设**，管理页 `/admin` 的 API 测试可直接一键填充（带 `*` 的才是待验证接口，目前无）。所有社区接口都经后端代理（`/api/community/*`），token 由后端自动附加，规避浏览器跨域问题。
 
 ### 代理路径约定（必读）
 
-所有社区接口都经过后端代理 `proxy.ts`（`/api/community/*`），token 由后端自动附加。请求链路如下：
+请求链路如下：
 
 ```
 前端 api.proxy(method, path)
-  → fetch('/api/community' + path)          // 例如 path='/community/topic/list' 时，
-                                            // 实际请求 URL = /api/community/community/topic/list
-  → 后端 proxy.ts 剥掉前缀 /api/community/  → /community/topic/list
-  → 转发到 https://gf2-bbs-api.exiliumgf.com/community/topic/list
+  → fetch('/api/community' + path)
+  → 后端 proxy.ts 剥掉前缀 /api/community/ → 转发到社区接口域名
 ```
 
 要点（容易踩坑，务必照做）：
 
 - **API 测试框里只填真实业务路径**：直接写 `/community/...`（以 `/community/` 开头），别写 `/api/community/...`。`api.proxy()` 会自动补 `/api/community` 前缀，所以前端 URL 里会出现**两段 `/community`（`/api/community/community/...`）**——这是设计如此，正常，不是 bug。
 - **预设接口已带正确前缀**：`endpoints.ts` 里的 path 都是 `/community/...` 形式，可直接用。
-- **切勿手动去掉或再加 `/community`**：如果写成 `/topic/list`（少了 `/community`），代理剥前缀后变成 `/topic/list`，上游返回 404；如果写成 `/api/community/community/topic/list`，则会变成 `/api/community/community/topic/list`（三重），同样 404。
-- **`get_month_sign_in_status` 的 `list`** 是「当月每天的签到奖励」数组（索引 `i` 对应第 `i+1` 天），元素含 `item_name / item_pic / item_count`；`sign_in_days` 为当月已签天数，`start_date / end_date` 为当月区间。注意：该接口**不返回每天是否已签的状态**，只有 `sign_in_days` 总数，因此日历里只有「今天」可结合 `get_current_sign_in_status` 的 `has_sign_in` 标记。
+- **切勿手动去掉或再加 `/community`**：路径写错（少写或多写 `/community`）会导致代理剥前缀后不匹配上游，返回 404。
 
 ## 目录结构
 
@@ -237,9 +221,9 @@ node stop.mjs && node start.mjs          # 或已纳入 pm2 管理时：pm2 rest
 ## 注意事项 / 风险
 
 - **账号风控**：使用第三方工具模拟登录可能违反官方用户协议，存在封号风险，请谨慎使用，建议用小号。
-- **接口可能变动**：社区登录接口域名曾于 2026-05-31 变更；若登录返回 401，优先检查 `ENCRYPTION_KEY` 是否仍是官方前端脚本里的最新值（抓包 `gf2-bbs.exiliumgf.com` 页面 JS 搜索 `Utf8.parse(...)` 即可找到）。
+- **接口可能变动**：社区登录接口域名曾于 2026-05-31 变更；若登录返回 401，优先检查 `ENCRYPTION_KEY` 是否仍是官方前端脚本里的最新值（抓包官方社区页面 JS 搜索 `Utf8.parse(...)` 即可找到）。
 - **token 安全**：`data/token.json` 等同账号凭证，切勿提交到 git 或公开。
-- **游戏进度**：社区 API 不暴露游戏服务器的**实时/完整**进度；但 `POST /community/member/info` 的 `user` 带社区侧游戏信息（`game_commander_level` 指挥等级、`endless_floor / endless_rank` 等），`POST /community/game/info` 另可拿到游戏档案（基础统计、前 8 名展示人形、各玩法战绩与主题收藏）。两者均为社区侧静态档案，不等同于游戏内的实时状态，其余实时进度走游戏服务器接口，不在本代理范围内。
+- **游戏进度**：社区 API 仅提供社区侧静态档案，不暴露游戏服务器的**实时/完整**进度；其余实时进度走游戏服务器接口，不在本代理范围内。
 
 
 ## 免责声明
@@ -247,7 +231,7 @@ node stop.mjs && node start.mjs          # 或已纳入 pm2 管理时：pm2 rest
 **本项目完全使用 AI 生成，仅供个人学习，请勿作他用。**
 
 - **无担保**：代码由 AI 生成，未经充分安全审计与稳定性验证，按「原样」提供，不提供任何明示或暗示的担保。使用者需自行承担全部风险与后果。
-- **仅限学习**：本项目用于学习接口鉴权、请求加密与代理转发等技术原理。**禁止**用于商业用途、公开分发、批量爬取、自动化脚本运营或任何违反少女前线2：追放官方用户协议的行为。
+- **仅限学习**：本项目用于学习接口鉴权、请求加密与代理转发等技术原理。**禁止**用于商业用途、公开分发、批量爬取、自动化脚本运营或任何违反 gf2 官方用户协议的行为。
 - **第三方接口**：本项目调用的社区接口并非官方公开 API，可能随时变更或增加风控。因使用本项目导致的账号封禁、数据丢失或任何其他损失，作者不承担责任。
 - **凭据安全**：`server/data/token.json`、`server/data/admin.json` 等同账号凭证，已被 `.gitignore` 排除，请勿提交到任何代码仓库或公开传播。
 - **商用与再分发**：本仓库未附加任何开源许可证，默认保留全部权利；如需二次分发或商用，请先自行取得相关方授权。
