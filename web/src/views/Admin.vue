@@ -169,9 +169,27 @@ function stageLines(item: any): [string, string][] {
 }
 
 const gameHeroes = computed(() => (gameInfo.value?.hero_list || []).slice(0, 8));
+
+/** 战绩分组：week_special（周常歧路，多条）→ 横向滚动；其余玩法 → 网格 */
+const gameStageGroups = computed(() => {
+  const all = flattenStages(gameInfo.value?.stage_info);
+  const week = all.filter((s) => s.key === 'week_special');
+  const rest = all.filter((s) => s.key !== 'week_special');
+  const groups: { label: string; items: { key: string; item: any }[]; scroll: boolean }[] = [];
+  if (week.length) groups.push({ label: `周常歧路 · ${week.length}`, items: week, scroll: true });
+  if (rest.length) groups.push({ label: `玩法战绩 · ${rest.length}`, items: rest, scroll: false });
+  return groups;
+});
+const stageTotal = computed(() => gameStageGroups.value.reduce((n, g) => n + g.items.length, 0));
+
+/** 战绩第二行说明文字：把 stageLines 拼成「指标 数值 · …」，无指标时退回关卡代码 */
+function stageCaption(s: { key: string; item: any }): string {
+  const pairs = stageLines(s.item);
+  if (!pairs.length) return s.item.stage_code || '';
+  return pairs.map(([k, v]) => (v ? `${k} ${v}` : k)).join(' · ');
+}
 const gameBase = computed(() => gameInfo.value?.base_info || {});
 const gameUser = computed(() => gameInfo.value?.user_info || {});
-const gameStages = computed(() => flattenStages(gameInfo.value?.stage_info));
 const gameThemes = computed(() => (gameInfo.value?.theme_info || []).slice(0, 12));
 
 // ---------- 社区每日签到 ----------
@@ -527,43 +545,61 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- 人形展示（前 8） -->
+        <!-- 人形展示（前 8，官方社区样式：立绘 + 叠加文字/椎体徽章） -->
         <h4 style="margin-top: 18px">
           人形展示
           <span class="muted" style="font-weight: 400; font-size: 12px">公开的前 {{ gameHeroes.length }} 名</span>
         </h4>
-        <div class="hero-grid" v-if="gameHeroes.length">
-          <div class="hero-card" v-for="h in gameHeroes" :key="h.id">
-            <div class="hero-img-wrap">
-              <img :src="h.skin || h.show_pic" :alt="h.name" loading="lazy" referrerpolicy="no-referrer" />
-              <span class="hero-name">{{ h.name }}</span>
-            </div>
-            <div class="hero-meta">
-              <span>Lv.{{ h.lv }}</span>
-              <span v-if="h.grade">椎体{{ h.grade }}</span>
-              <span v-if="h.rank">★{{ h.rank }}</span>
-            </div>
+        <div class="dolls" v-if="gameHeroes.length">
+          <div
+            class="doll"
+            v-for="h in gameHeroes"
+            :key="h.id"
+            :title="`${h.name} · lv.${h.lv}` + (h.grade !== null && h.grade !== undefined && h.grade !== '' ? ' · 椎体 ' + h.grade : '')"
+          >
+            <img :src="h.skin || h.show_pic" :alt="h.name" loading="lazy" referrerpolicy="no-referrer" />
+            <span class="doll-name">{{ h.name }}</span>
+            <!-- 椎体徽章：装饰底 + svg 数字叠加（同官方 grade_text_svg 手法） -->
+            <span
+              class="grade"
+              v-if="h.grade !== null && h.grade !== undefined && h.grade !== ''"
+            >
+              <svg class="grade_text_svg" viewBox="0 0 34 34" aria-hidden="true">
+                <text x="17" y="17" text-anchor="middle" dominant-baseline="central">{{ h.grade }}</text>
+              </svg>
+            </span>
+            <span class="doll-lv">lv.{{ h.lv }}</span>
           </div>
         </div>
         <p v-else class="muted">未公开人形或暂无数据。</p>
 
-        <!-- 游戏战绩 -->
+        <!-- 游戏战绩（官方社区样式：整幅横条图 + 右侧叠加文字；周常歧路横向滚动） -->
         <h4 style="margin-top: 18px">
           游戏战绩
-          <span class="muted" style="font-weight: 400; font-size: 12px">共 {{ gameStages.length }} 项</span>
+          <span class="muted" style="font-weight: 400; font-size: 12px">共 {{ stageTotal }} 项</span>
         </h4>
-        <div class="stage-grid" v-if="gameStages.length">
-          <div class="stage-card" v-for="(s, i) in gameStages" :key="i">
-            <img v-if="s.item.show_pic" :src="s.item.show_pic" alt="" loading="lazy" referrerpolicy="no-referrer" />
-            <div class="stage-body">
-              <div class="stage-title">{{ s.item.name || s.key }}</div>
-              <div class="stage-line" v-for="(ln, j) in stageLines(s.item)" :key="j">
-                <span>{{ ln[0] }}</span><b>{{ ln[1] }}</b>
+        <template v-if="gameStageGroups.length">
+          <div v-for="(g, gi) in gameStageGroups" :key="gi" class="stage-block">
+            <div class="stage-group-label">{{ g.label }}</div>
+            <div :class="g.scroll ? 'stage-scroll' : 'stage-list'">
+              <div
+                class="stage-card"
+                v-for="(s, i) in g.items"
+                :key="gi + '-' + i"
+                :title="`${s.item.name || s.key}` + (stageCaption(s) ? ' · ' + stageCaption(s) : '')"
+              >
+                <img :src="s.item.show_pic" alt="" loading="lazy" referrerpolicy="no-referrer" />
+                <div class="stage-cap">
+                  <p class="stage-name">{{ s.item.name || s.key }}</p>
+                  <div class="stage-metric">
+                    <span v-if="s.item.stage_code" class="stage-chip">{{ s.item.stage_code }}</span>
+                    <span v-if="stageCaption(s)" class="stage-caption">{{ stageCaption(s) }}</span>
+                  </div>
+                </div>
               </div>
-              <span v-if="s.item.stage_code" class="tag stage-code">{{ s.item.stage_code }}</span>
             </div>
           </div>
-        </div>
+        </template>
         <p v-else class="muted">未公开战绩或暂无数据。</p>
 
         <!-- 主题档案 -->
@@ -807,111 +843,203 @@ onMounted(async () => {
   bottom: 1px;
   right: 2px;
 }
-/* ---------- 游戏资料 ---------- */
-.hero-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+/* ---------- 游戏资料（官方社区样式：文字/徽章叠在图上） ---------- */
+/* 人形展示：横向滚动立绘条 */
+.dolls {
+  display: flex;
   gap: 10px;
-  margin-top: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 2px 10px;
+  scroll-snap-type: x proximity;
 }
-.hero-card {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 6px;
+.dolls::-webkit-scrollbar {
+  height: 6px;
 }
-.hero-img-wrap {
+.doll {
   position: relative;
-  border-radius: calc(var(--radius) - 4px);
+  flex: 0 0 auto;
+  width: 92px;
+  height: 138px;
+  border-radius: 10px;
   overflow: hidden;
   background: var(--surface-2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  scroll-snap-align: start;
 }
-.hero-img-wrap img {
+.doll img {
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
-  aspect-ratio: 3 / 4;
+  height: 100%;
   object-fit: cover;
+  object-position: top center;
   display: block;
 }
-.hero-name {
+.doll::after {
+  /* 底部渐变，让叠加文字可读 */
+  content: '';
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 14px 6px 4px;
-  font-size: 12px;
+  height: 36%;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.72));
+  pointer-events: none;
+}
+.doll-name {
+  position: absolute;
+  left: 6px;
+  bottom: 5px;
+  z-index: 1;
+  max-width: calc(100% - 58px);
+  font-size: 11px;
   font-weight: 600;
   color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.72));
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.hero-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  justify-content: center;
+.doll-lv {
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+  z-index: 1;
+  font-size: 12px;
+  font-weight: 700;
+  color: #f26c1c;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+}
+/* 椎体徽章：装饰圆底 + svg 叠数字（svg 铺满徽章，text 居中） */
+.doll .grade {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: url(data:image/png;base64,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) no-repeat;
+  background-size: 100% 100%
+}
+.doll .grade .grade_text_svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+.doll .grade .grade_text_svg text {
+  fill: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+}
+/* 游戏战绩：整幅横条图 + 右侧叠加文字 */
+.stage-block + .stage-block {
   margin-top: 6px;
 }
-.hero-meta span {
-  font-size: 11px;
-  color: var(--text);
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  line-height: 1.4;
-}
-.stage-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(224px, 1fr));
-  gap: 10px;
-  margin-top: 8px;
-}
-.stage-card {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 10px;
-}
-.stage-card > img {
-  width: 56px;
-  height: 56px;
-  object-fit: cover;
-  border-radius: 8px;
-  background: var(--surface-2);
-  flex-shrink: 0;
-}
-.stage-body {
-  min-width: 0;
-  flex: 1;
-}
-.stage-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 3px;
-}
-.stage-line {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+.stage-group-label {
   font-size: 12px;
   color: var(--text-2);
-  line-height: 1.6;
+  margin: 2px 0 8px;
 }
-.stage-line b {
-  color: var(--text);
-  font-weight: 600;
-  word-break: break-all;
+.stage-list {
+  margin-top: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px;
+}
+.stage-scroll {
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  gap: 10px;
+  padding: 2px 2px 8px;
+  scroll-snap-type: x proximity;
+}
+.stage-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+.stage-scroll .stage-card {
+  flex: 0 0 auto;
+  width: min(420px, 84%);
+  margin-bottom: 0;
+  scroll-snap-align: start;
+}
+.stage-list .stage-card {
+  margin-bottom: 0;
+}
+.stage-card {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3.64 / 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-2);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+.stage-card img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.stage-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(8, 8, 10, 0.3), rgba(8, 8, 10, 0.18) 60%, rgba(8, 8, 10, 0.32));
+  pointer-events: none;
+}
+.stage-cap {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  max-width: 72%;
   text-align: right;
 }
-.stage-code {
-  font-size: 11px;
-  margin-top: 4px;
+.stage-name {
+  margin: 0 0 3px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.25;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stage-metric {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #ffe3a8;
+  line-height: 1.5;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+}
+.stage-chip {
+  background: rgba(235, 235, 238, 0.92);
+  color: #1a1a1a;
+  border-radius: 4px;
+  padding: 0 5px;
+  line-height: 15px;
+  font-weight: 600;
+  text-shadow: none;
+}
+.stage-caption {
+  text-align: right;
 }
 .theme-grid {
   display: grid;
