@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
 import JsonTree from '../components/JsonTree.vue';
@@ -120,6 +120,59 @@ async function loadUser() {
   if (r.ok) userInfo.value = r.data?.data?.user ?? r.data;
   else userErr.value = r.data;
 }
+
+// ---------- 游戏资料（POST /community/game/info，移动端 /m/userData 同源） ----------
+const gameInfo = ref<any>(null);
+const gameErr = ref('');
+const gameLoading = ref(false);
+async function loadGame() {
+  if (!status.value?.loggedIn) {
+    gameErr.value = '请先登录社区账号';
+    return;
+  }
+  gameLoading.value = true;
+  gameErr.value = '';
+  gameInfo.value = null;
+  const r = await api.proxy('POST', '/community/game/info', {});
+  gameLoading.value = false;
+  if (r.ok) gameInfo.value = r.data?.data ?? r.data;
+  else gameErr.value = r.data;
+}
+
+/** 展平 stage_info（键值可能为对象或数组），带原键名便于特判 */
+function flattenStages(stageInfo: any): { key: string; item: any }[] {
+  const out: { key: string; item: any }[] = [];
+  for (const [k, v] of Object.entries(stageInfo || {})) {
+    if (Array.isArray(v)) for (const it of v) out.push({ key: k, item: it });
+    else if (v && typeof v === 'object') out.push({ key: k, item: v });
+  }
+  return out;
+}
+
+/** 单条战绩 → [(指标名, 值)] 行；stage_name 缺失时按字段猜指标名 */
+function stageLines(item: any): [string, string][] {
+  const has = (x: any) => x !== null && x !== undefined && x !== '';
+  const n = (x: any) => String(x);
+  if (has(item.stage_name)) {
+    let val = '';
+    if (has(item.complete_percent)) val = n(item.complete_percent);
+    else if (has(item.max_score)) val = n(item.max_score);
+    else if (has(item.stay_stage)) val = '停留 ' + n(item.stay_stage);
+    return val ? [[item.stage_name, val]] : [];
+  }
+  const lines: [string, string][] = [];
+  if (has(item.max_score)) lines.push(['最高积分', n(item.max_score)]);
+  if (has(item.stage_rank)) lines.push(['段位', n(item.stage_rank)]);
+  if (has(item.complete_percent)) lines.push(['完成度', n(item.complete_percent) + '%']);
+  if (has(item.stay_stage)) lines.push(['停留关卡', n(item.stay_stage)]);
+  return lines;
+}
+
+const gameHeroes = computed(() => (gameInfo.value?.hero_list || []).slice(0, 8));
+const gameBase = computed(() => gameInfo.value?.base_info || {});
+const gameUser = computed(() => gameInfo.value?.user_info || {});
+const gameStages = computed(() => flattenStages(gameInfo.value?.stage_info));
+const gameThemes = computed(() => (gameInfo.value?.theme_info || []).slice(0, 12));
 
 // ---------- 社区每日签到 ----------
 const signState = ref<'idle' | 'loading' | 'done'>('idle');
@@ -376,6 +429,9 @@ onMounted(async () => {
         <button class="btn primary" v-if="status?.loggedIn" @click="loadUser" :disabled="userLoading">
           {{ userLoading ? '请求中…' : (userInfo ? '刷新用户资料' : '获取用户资料') }}
         </button>
+        <button class="btn primary" v-if="status?.loggedIn" @click="loadGame" :disabled="gameLoading">
+          {{ gameLoading ? '请求中…' : (gameInfo ? '刷新游戏资料' : '获取游戏资料') }}
+        </button>
       </div>
 
       <div v-if="topics" class="json-box">
@@ -392,7 +448,7 @@ onMounted(async () => {
       </div>
 
       <div v-if="!status?.loggedIn" class="muted" style="margin-top: 10px">
-        尚未登录社区账号，登录后可查看「用户资料」演示。
+        尚未登录社区账号，登录后可查看「用户资料」「游戏资料」演示。
       </div>
 
       <div v-if="userInfo" class="profile">
@@ -433,6 +489,101 @@ onMounted(async () => {
           <pre>{{ JSON.stringify(userInfo, null, 2) }}</pre>
         </details>
       </div>
+
+      <!-- 游戏资料（基础资料 + 人形前8 + 战绩） -->
+      <div v-if="gameInfo" class="profile">
+        <h4 style="margin-top: 18px">
+          游戏资料
+          <span class="muted" style="font-weight: 400; font-size: 12px">POST /community/game/info</span>
+        </h4>
+
+        <!-- 基础资料 -->
+        <div class="profile-head">
+          <img v-if="gameUser.avatar" :src="gameUser.avatar" class="avatar" alt="头像" referrerpolicy="no-referrer" />
+          <div>
+            <div class="name">{{ gameUser.nick_name || '未知用户' }} <span class="muted">#{{ gameUser.game_uid }}</span></div>
+            <div class="muted" v-if="gameUser.guild_name">公会：{{ gameUser.guild_name }}</div>
+            <div class="muted" v-if="gameUser.level">指挥等级：{{ gameUser.level }}</div>
+          </div>
+        </div>
+        <div class="stats" v-if="Object.keys(gameBase).length">
+          <div class="stat" v-if="gameBase.main_stage">
+            <span class="stat-val">{{ gameBase.main_stage }}</span><span class="stat-label">主线进度</span>
+          </div>
+          <div class="stat" v-if="gameBase.hero_count != null">
+            <span class="stat-val">{{ gameBase.hero_count }}</span><span class="stat-label">人形</span>
+          </div>
+          <div class="stat" v-if="gameBase.active_days != null">
+            <span class="stat-val">{{ gameBase.active_days }}</span><span class="stat-label">活跃天数</span>
+          </div>
+          <div class="stat" v-if="gameBase.skin_count != null">
+            <span class="stat-val">{{ gameBase.skin_count }}</span><span class="stat-label">皮肤</span>
+          </div>
+          <div class="stat" v-if="gameBase.weapon_count != null">
+            <span class="stat-val">{{ gameBase.weapon_count }}</span><span class="stat-label">武器</span>
+          </div>
+          <div class="stat" v-if="gameBase.achievement_count != null">
+            <span class="stat-val">{{ gameBase.achievement_count }}</span><span class="stat-label">成就</span>
+          </div>
+        </div>
+
+        <!-- 人形展示（前 8） -->
+        <h4 style="margin-top: 18px">
+          人形展示
+          <span class="muted" style="font-weight: 400; font-size: 12px">公开的前 {{ gameHeroes.length }} 名</span>
+        </h4>
+        <div class="hero-grid" v-if="gameHeroes.length">
+          <div class="hero-card" v-for="h in gameHeroes" :key="h.id">
+            <div class="hero-img-wrap">
+              <img :src="h.skin || h.show_pic" :alt="h.name" loading="lazy" referrerpolicy="no-referrer" />
+              <span class="hero-name">{{ h.name }}</span>
+            </div>
+            <div class="hero-meta">
+              <span>Lv.{{ h.lv }}</span>
+              <span v-if="h.grade">椎体{{ h.grade }}</span>
+              <span v-if="h.rank">★{{ h.rank }}</span>
+            </div>
+          </div>
+        </div>
+        <p v-else class="muted">未公开人形或暂无数据。</p>
+
+        <!-- 游戏战绩 -->
+        <h4 style="margin-top: 18px">
+          游戏战绩
+          <span class="muted" style="font-weight: 400; font-size: 12px">共 {{ gameStages.length }} 项</span>
+        </h4>
+        <div class="stage-grid" v-if="gameStages.length">
+          <div class="stage-card" v-for="(s, i) in gameStages" :key="i">
+            <img v-if="s.item.show_pic" :src="s.item.show_pic" alt="" loading="lazy" referrerpolicy="no-referrer" />
+            <div class="stage-body">
+              <div class="stage-title">{{ s.item.name || s.key }}</div>
+              <div class="stage-line" v-for="(ln, j) in stageLines(s.item)" :key="j">
+                <span>{{ ln[0] }}</span><b>{{ ln[1] }}</b>
+              </div>
+              <span v-if="s.item.stage_code" class="tag stage-code">{{ s.item.stage_code }}</span>
+            </div>
+          </div>
+        </div>
+        <p v-else class="muted">未公开战绩或暂无数据。</p>
+
+        <!-- 主题档案 -->
+        <details v-if="gameThemes.length" style="margin-top: 14px">
+          <summary class="muted" style="cursor: pointer">主题档案 · {{ gameThemes.length }} 项（点击展开）</summary>
+          <div class="theme-grid">
+            <div class="theme-item" v-for="(t, i) in gameThemes" :key="i">
+              <img :src="t.show_pic" alt="" loading="lazy" referrerpolicy="no-referrer" />
+              <span class="theme-pct">{{ t.complete_percent }}%</span>
+            </div>
+          </div>
+        </details>
+
+        <details style="margin-top: 10px">
+          <summary class="muted" style="cursor: pointer">查看原始 JSON</summary>
+          <pre>{{ JSON.stringify(gameInfo, null, 2) }}</pre>
+        </details>
+      </div>
+
+      <pre v-if="gameErr" style="color: var(--danger)">{{ JSON.stringify(gameErr, null, 2) }}</pre>
 
       <pre v-if="userErr" style="color: var(--danger)">{{ JSON.stringify(userErr, null, 2) }}</pre>
     </div>
@@ -655,5 +806,142 @@ onMounted(async () => {
   font-size: 8px;
   bottom: 1px;
   right: 2px;
+}
+/* ---------- 游戏资料 ---------- */
+.hero-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+.hero-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px;
+}
+.hero-img-wrap {
+  position: relative;
+  border-radius: calc(var(--radius) - 4px);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.hero-img-wrap img {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  display: block;
+}
+.hero-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14px 6px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.72));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  margin-top: 6px;
+}
+.hero-meta span {
+  font-size: 11px;
+  color: var(--text);
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  line-height: 1.4;
+}
+.stage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(224px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+.stage-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+.stage-card > img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+.stage-body {
+  min-width: 0;
+  flex: 1;
+}
+.stage-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.stage-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+.stage-line b {
+  color: var(--text);
+  font-weight: 600;
+  word-break: break-all;
+  text-align: right;
+}
+.stage-code {
+  font-size: 11px;
+  margin-top: 4px;
+}
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.theme-item {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.theme-item img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+}
+.theme-pct {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 6px;
+  padding: 0 5px;
+  line-height: 1.5;
 }
 </style>

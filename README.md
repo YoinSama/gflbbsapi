@@ -45,6 +45,12 @@
 - **API 域名**：`https://gf2-bbs-api.exiliumgf.com`（注意是 `gf2-bbs-api` 子域，不是主站 `gf2-bbs`）
 - **业务接口统一在 `/community/*` 下**
 - **获取用户资料 = `POST /community/member/info`**（必须用 POST，请求体可为 `{}`），返回 `data.user`；字段含 `nick_name / avatar / level / exp / score / fans / follows`，以及游戏相关 `game_uid / game_nick_name / game_commander_level / endless_floor / endless_rank` 等
+- **游戏资料 = `POST /community/game/info`**（请求体可为 `{}`；管理页「接口演示」的「获取游戏资料」即调用它展示），返回 `data`：
+  - `user_info`：基础资料（头像 / 昵称 / 游戏 UID / 公会 / 指挥等级）
+  - `base_info`：游戏统计（主线进度 `main_stage`、人形数、活跃天数、皮肤、武器、成就）
+  - `hero_list`：**展示人形（恰 8 名，前端即按此展示）**，含 `name` 名称 / `lv` 等级 / `grade` 椎体 / `skin` 皮肤图 / `rank` 星级 / `show_pic` 等
+  - `stage_info`：游戏战绩（异位冲突 / 迭代回廊 / 尘烟前线 / 拓界征途 / 峰值推定 / 要塞伯爵 等玩法，每项含模式名 + 指标名 + 数值）
+  - `theme_info`：主题档案（收藏完成度）
 - 其他常用接口：`GET /community/topic/list?sort_type=2`（帖子列表）、`POST /community/task/sign_in`（签到）、`GET /community/task/get_current_sign_in_status`（今日签到状态）、`GET /community/member/score_log`（积分记录）、`GET /community/user_recommend`（推荐用户）
 
 后端 `server/src/endpoints.ts` 内置了一份**已验证的接口预设**，管理页 `/admin` 的 API 测试可直接一键填充（带 `*` 的才是待验证接口，目前无）。
@@ -233,7 +239,7 @@ node stop.mjs && node start.mjs          # 或已纳入 pm2 管理时：pm2 rest
 - **账号风控**：使用第三方工具模拟登录可能违反官方用户协议，存在封号风险，请谨慎使用，建议用小号。
 - **接口可能变动**：社区登录接口域名曾于 2026-05-31 变更；若登录返回 401，优先检查 `ENCRYPTION_KEY` 是否仍是官方前端脚本里的最新值（抓包 `gf2-bbs.exiliumgf.com` 页面 JS 搜索 `Utf8.parse(...)` 即可找到）。
 - **token 安全**：`data/token.json` 等同账号凭证，切勿提交到 git 或公开。
-- **游戏进度**：社区 API 不暴露游戏服务器的真实进度；但 `POST /community/member/info` 返回的 `user` 对象里带有社区侧游戏信息（`game_commander_level` 指挥等级、`endless_floor / endless_rank` 等），可在展示页查看。其余账号内游戏进度走游戏服务器接口，不在本代理范围内，可用管理页的 API 测试自行探索。
+- **游戏进度**：社区 API 不暴露游戏服务器的**实时/完整**进度；但 `POST /community/member/info` 的 `user` 带社区侧游戏信息（`game_commander_level` 指挥等级、`endless_floor / endless_rank` 等），`POST /community/game/info` 另可拿到游戏档案（基础统计、前 8 名展示人形、各玩法战绩与主题收藏）。两者均为社区侧静态档案，不等同于游戏内的实时状态，其余实时进度走游戏服务器接口，不在本代理范围内。
 
 
 ## 免责声明

@@ -51,6 +51,14 @@ export const endpointPresets: EndpointPreset[] = [
     note: '必须用 POST；请求体可为 {}，返回 data.user',
   },
   {
+    name: '游戏资料',
+    method: 'POST',
+    path: '/community/game/info',
+    needsAuth: true,
+    verified: true,
+    note: '请求体可为 {}，返回 data.{user_info,base_info,hero_list,stage_info,theme_info}',
+  },
+  {
     name: '积分记录',
     method: 'GET',
     path: '/community/member/score_log',
