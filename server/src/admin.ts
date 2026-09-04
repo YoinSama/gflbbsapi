@@ -8,7 +8,9 @@ import { config } from './config';
 /**
  * 本地管理员鉴权（用于网关「管理页」）。
  * 与社区 token 登录无关：这是访问管理页自身的账号体系。
- * - 默认账号 admin / 密码 123456，首次登录强制修改账号与密码（mustChange）。
+ * - 初始账号 admin / 密码 123456，首次登录强制修改账号与密码（mustChange）。
+ * - 🔒 默认凭据一次性失效：一旦已创建管理员账户（isInitialized），admin/123456
+ *   立即永久失效（登录直接 403 拒绝），且不允许改回该组合；仅未初始化状态可用。
  * - 会话（sid）持久化在 server/data/admin.json 的 sessions 字段中：
  *   进程重启 / 多进程（fork）均读同一份文件，登录态不会丢失，避免被踢。
  * - 凭据（scrypt 哈希）同样存于 admin.json（已被 .gitignore 的 data/ 忽略）。

@@ -115,7 +115,7 @@ onMounted(loadAdminStatus);
       <h2 style="margin-top: 0">请修改管理员账号和密码</h2>
       <p class="muted">检测到使用默认凭据，出于安全请先修改管理员账号与密码。</p>
       <div style="display: grid; gap: 10px; max-width: 360px">
-        <input class="input" type="password" v-model="chg.oldPassword" placeholder="当前密码（默认 123456）" />
+        <input class="input" type="password" v-model="chg.oldPassword" placeholder="当前密码" />
         <input class="input" v-model="chg.newUsername" placeholder="新管理员账号" />
         <input class="input" type="password" v-model="chg.newPassword" placeholder="新密码（≥6 位）" />
         <input class="input" type="password" v-model="chg.confirm" placeholder="确认新密码" />
