@@ -10,7 +10,8 @@ import { config } from './config';
  * 与社区 token 登录无关：这是访问管理页自身的账号体系。
  * - 初始账号 admin / 密码 123456，首次登录强制修改账号与密码（mustChange）。
  * - 🔒 默认凭据一次性失效：一旦已创建管理员账户（isInitialized），admin/123456
- *   立即永久失效（登录直接 403 拒绝），且不允许改回该组合；仅未初始化状态可用。
+ *   立即永久失效（拒绝登录，提示与普通密码错误完全一致、不可区分），且不允许
+ *   改回该组合；仅未初始化状态可用。
  * - 会话（sid）持久化在 server/data/admin.json 的 sessions 字段中：
  *   进程重启 / 多进程（fork）均读同一份文件，登录态不会丢失，避免被踢。
  * - 凭据（scrypt 哈希）同样存于 admin.json（已被 .gitignore 的 data/ 忽略）。
@@ -128,10 +129,11 @@ admin.post('/login', async (c) => {
     return c.json({ ok: false, message: '缺少用户名或密码' }, 400);
   }
   const rec = loadAdmin();
-  // 安全：一旦创建过管理员账户，出厂默认凭据即永久失效，
-  // 避免出现「改了密却仍能拿 admin/123456 登录」或默认凭据被回退使用的情况
+  // 安全：一旦创建过管理员账户，出厂默认凭据即永久失效（历史/畸形 admin.json 的兜底），
+  // 避免「改了密却仍能拿 admin/123456 登录」。响应刻意与普通密码错误完全一致
+  // （401 + 同一文案）——不泄露「默认凭据已被禁用」或「默认密码命中」给探测者
   if (isInitialized(rec) && username === DEFAULT_USERNAME && password === DEFAULT_PASSWORD) {
-    return c.json({ ok: false, message: '默认账号密码已失效，请使用你修改后的管理员凭据登录' }, 403);
+    return c.json({ ok: false, message: '用户名或密码错误' }, 401);
   }
   if (username !== rec.username || !verifyPassword(password, rec)) {
     return c.json({ ok: false, message: '用户名或密码错误' }, 401);
