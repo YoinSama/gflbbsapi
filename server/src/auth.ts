@@ -27,7 +27,7 @@ auth.post('/login', async (c) => {
       delete (accountSafe as any).token;
       const rec: TokenRecord = {
         token,
-        account: data.data.account,
+        account: accountSafe,
         loggedInAt: new Date().toISOString(),
       };
       await saveToken(rec);
