@@ -463,10 +463,7 @@ onMounted(async () => {
               <td><span class="tag" :style="k.enabled ? '' : 'background:var(--danger);color:#fff'">{{ k.enabled ? '启用' : '停用' }}</span></td>
               <td class="muted" style="white-space: nowrap">{{ k.lastUsedAt ? fmtTime(k.lastUsedAt) : '从未使用' }}</td>
               <td>
-                <div class="row" style="gap: 6px">
-                  <button class="btn link" type="button" @click="copyKey(k.key)">复制</button>
-                  <button class="btn link" type="button" style="color: var(--danger)" @click="removeApikey(k.id)">删除</button>
-                </div>
+                <button class="btn link" type="button" style="color: var(--danger)" @click="removeApikey(k.id)">删除</button>
               </td>
             </tr>
           </tbody>
