@@ -558,7 +558,6 @@ onMounted(async () => {
             :title="`${h.name} · lv.${h.lv}` + (h.grade !== null && h.grade !== undefined && h.grade !== '' ? ' · 椎体 ' + h.grade : '')"
           >
             <img :src="h.skin || h.show_pic" :alt="h.name" loading="lazy" referrerpolicy="no-referrer" />
-            <span class="doll-name">{{ h.name }}</span>
             <!-- 椎体徽章：装饰底 + svg 数字叠加（同官方 grade_text_svg 手法） -->
             <span
               class="grade"
@@ -888,28 +887,16 @@ onMounted(async () => {
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.72));
   pointer-events: none;
 }
-.doll-name {
-  position: absolute;
-  left: 6px;
-  bottom: 5px;
-  z-index: 1;
-  max-width: calc(100% - 58px);
-  font-size: 11px;
-  font-weight: 600;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .doll-lv {
   position: absolute;
-  right: 6px;
+  left: 0;
+  right: 0;
   bottom: 5px;
   z-index: 1;
   font-size: 12px;
   font-weight: 700;
   color: #f26c1c;
+  text-align: center;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
 }
 /* 椎体徽章：装饰圆底 + svg 叠数字（svg 铺满徽章，text 居中） */
