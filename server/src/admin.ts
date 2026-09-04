@@ -22,6 +22,18 @@ const adminFile = resolve(dataDir, 'admin.json');
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 与 cookie Max-Age 一致（7 天）
 
+/** 出厂默认凭据：仅在「尚未创建管理员账户」时可用，一旦初始化即永久失效 */
+const DEFAULT_USERNAME = 'admin';
+const DEFAULT_PASSWORD = '123456';
+
+/**
+ * 是否已「创建过」管理员账户（即不再是出厂默认状态）。
+ * 判定依据：完成首次改密（mustChange=false），或账号名已不再是默认的 admin。
+ */
+function isInitialized(rec: AdminRecord): boolean {
+  return rec.mustChange === false || rec.username !== DEFAULT_USERNAME;
+}
+
 interface AdminSession {
   createdAt: string;
 }
@@ -54,7 +66,7 @@ function normalize(raw: Partial<AdminRecord> & { username: string; salt: string;
 function loadAdmin(): AdminRecord {
   ensureDataDir();
   if (!existsSync(adminFile)) {
-    const rec = createAdmin('admin', '123456', true);
+    const rec = createAdmin(DEFAULT_USERNAME, DEFAULT_PASSWORD, true);
     writeFileSync(adminFile, JSON.stringify(rec, null, 2));
     return rec;
   }
@@ -114,6 +126,11 @@ admin.post('/login', async (c) => {
     return c.json({ ok: false, message: '缺少用户名或密码' }, 400);
   }
   const rec = loadAdmin();
+  // 安全：一旦创建过管理员账户，出厂默认凭据即永久失效，
+  // 避免出现「改了密却仍能拿 admin/123456 登录」或默认凭据被回退使用的情况
+  if (isInitialized(rec) && username === DEFAULT_USERNAME && password === DEFAULT_PASSWORD) {
+    return c.json({ ok: false, message: '默认账号密码已失效，请使用你修改后的管理员凭据登录' }, 403);
+  }
   if (username !== rec.username || !verifyPassword(password, rec)) {
     return c.json({ ok: false, message: '用户名或密码错误' }, 401);
   }
@@ -125,9 +142,16 @@ admin.post('/login', async (c) => {
 });
 
 admin.get('/status', (c) => {
-  if (!getSession(c)) return c.json({ loggedIn: false });
   const rec = loadAdmin();
-  return c.json({ loggedIn: true, mustChange: rec.mustChange, username: rec.username });
+  const loggedIn = !!getSession(c);
+  return c.json({
+    loggedIn,
+    // 未登录时不泄露账号名
+    mustChange: loggedIn ? rec.mustChange : false,
+    username: loggedIn ? rec.username : '',
+    // 未登录时同样返回：前端据此决定是否展示默认凭据提示
+    initialized: isInitialized(rec),
+  });
 });
 
 admin.post('/change', async (c) => {
@@ -151,6 +175,10 @@ admin.post('/change', async (c) => {
   const rec = loadAdmin();
   if (!verifyPassword(oldPassword, rec)) {
     return c.json({ ok: false, message: '当前密码错误' }, 401);
+  }
+  // 安全：不允许改回出厂默认凭据——否则改完就变成「默认凭据已失效」而登录不进去，等于把自己锁在门外
+  if (newUsername === DEFAULT_USERNAME && newPassword === DEFAULT_PASSWORD) {
+    return c.json({ ok: false, message: '不能改回默认账号密码（admin / 123456）' }, 400);
   }
   const updated = createAdmin(newUsername, newPassword, false);
   updated.sessions = rec.sessions; // 改密后保留当前登录会话，不被踢

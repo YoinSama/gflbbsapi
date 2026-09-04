@@ -6,7 +6,7 @@ import { api } from '../api';
 const router = useRouter();
 
 // ---------- 管理员网关（项目入口） ----------
-const admin = ref({ loggedIn: false, mustChange: false, username: '' });
+const admin = ref({ loggedIn: false, mustChange: false, username: '', initialized: false });
 const adminUser = ref('');
 const adminPass = ref('');
 const adminMsg = ref('');
@@ -26,10 +26,17 @@ function maybeRedirect() {
 
 async function loadAdminStatus() {
   const r = await api.adminStatus();
+  // initialized=true 表示已创建过管理员账户 → 不展示默认凭据提示（默认凭据也已失效）
+  const initialized = !!r.data?.initialized;
   if (r.ok && r.data?.loggedIn) {
-    admin.value = { loggedIn: true, mustChange: r.data.mustChange, username: r.data.username || '' };
+    admin.value = {
+      loggedIn: true,
+      mustChange: r.data.mustChange,
+      username: r.data.username || '',
+      initialized,
+    };
   } else {
-    admin.value = { loggedIn: false, mustChange: false, username: '' };
+    admin.value = { loggedIn: false, mustChange: false, username: '', initialized };
   }
   maybeRedirect();
 }
@@ -87,7 +94,10 @@ onMounted(loadAdminStatus);
     <div class="card" v-else-if="!admin.loggedIn">
       <h2 style="margin-top: 0">管理员登录</h2>
       <p class="muted">少前2 社区 API 管理后台需要管理员登录后才能进入。</p>
-      <p class="muted">默认管理员账号 <code>admin</code>，密码 <code>123456</code>（首次登录后请立即修改）。</p>
+      <!-- 仅在「尚未创建管理员账户」时提示默认凭据；已初始化后默认凭据已失效，不再展示 -->
+      <p class="muted" v-if="!admin.initialized">
+        默认管理员账号 <code>admin</code>，密码 <code>123456</code>（首次登录后请立即修改）。
+      </p>
       <div style="display: grid; gap: 10px; max-width: 320px">
         <input class="input" v-model="adminUser" placeholder="管理员账号" />
         <input class="input" type="password" v-model="adminPass" placeholder="密码" />
