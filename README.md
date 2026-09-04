@@ -31,7 +31,7 @@ gf2 官方社区的轻量 API 代理 + 展示项目。
 | 后端 | Node.js + TypeScript + Hono（单进程：出 API + 托管前端静态文件） |
 | 前端 | Vue 3 + Vite（Login 登录页 + Admin 管理页，CSS 变量深浅色主题，响应式） |
 | 持久化 | 服务器本地 JSON 文件（`data/token.json`，已 gitignore） |
-| 部署 | PM2（进程守护）+ Cloudflare（代理 / HTTPS 终结，源站直连） |
+| 部署 | PM2（进程守护）+ 直接 IP:端口 访问（源站直连，无 CDN / 代理） |
 
 加密细节：密码先 MD5，账号与密码均用 `aes-128-cbc`（key = iv = `ENCRYPTION_KEY`）加密，
 密文 hex → base64 → URL-safe。密钥来自官方社区前端脚本，可能与版本相关。
@@ -187,28 +187,20 @@ node stop.mjs && node start.mjs          # 或已纳入 pm2 管理时：pm2 rest
 > 而 `esbuild` 必须靠 postinstall 装原生二进制，不放行则 `esbuild`/`vite` 都跑不起来 → 构建、`node start.mjs` 全线失败。
 > **本项目已配置** `allowBuilds: { esbuild: true }`（见 `pnpm-workspace.yaml`）。⚠️ 注意该值**必须是布尔值**——pnpm 自动生成的占位文字 `set this to true or false` 会被判为「未放行」并触发上述报错；且不要把配置同时写在 `package.json`（v11 已忽略，会造成两份冲突来源）。
 
-### 部署架构：Cloudflare 代理 → 源站直连（本项目采用）
+### 部署架构：直接 IP:端口 访问（源站直连，不接 CDN / 代理）
 
-> 下文中 `gflbbsapi.example.com` 为**示例域名**，部署时请替换为你自己的域名。
+> 本项目不依赖域名或反向代理，源站 Node 应用直接在公网 IP 的某个端口监听，客户端用 `http://<服务器公网IP>:<端口>/` 访问即可。
 
 ```
-访客 -- HTTPS --> Cloudflare（终结 TLS / 代理 / 边缘缓存）
-                        |
-                        | 回源（明文 HTTP）
-                        v
-         阿里云源站 · Node 应用（PM2 守护）
-         仅监听应用端口，不装 nginx、不开 80/443
+客户端 -- HTTP --> 阿里云源站 · Node 应用（PM2 守护，监听应用端口）
+                   仅监听应用端口，不装 nginx、不跑 certbot、不接 Cloudflare
 ```
 
-0. **安全组收敛（强烈建议优先完成）**：在阿里云控制台将源站端口的入方向来源限制为 [Cloudflare 官方 IP 段](https://www.cloudflare.com/ips/)，而非 `0.0.0.0/0`。这样除 Cloudflare 外无人能直连源站端口 → 后续步骤中回源明文流量不会通过公网暴露给其他访客。**没做这一步前不要执行后续步骤**。
-1. **服务器侧**：只把源站应用跑起来即可（一键脚本 / 手动步骤见上），**不装 nginx、不跑 certbot**。
-2. **DNS**：`gflbbsapi.example.com` 的 A 记录**直接指向阿里云公网 IP**，且保持**橙云（Proxied）**——只有代理状态，下面的 SSL 与 Origin Rule 设置才会生效。
-3. **Cloudflare → SSL/TLS → Overview**：加密模式设为 **Flexible**（Cloudflare 终结访客 HTTPS，回源走明文 HTTP）。
-4. **Cloudflare → Rules → Origin Rules**：新建规则，条件 `Hostname = gflbbsapi.example.com`，操作 **Override destination port → 源站应用监听端口**（免费版可用）。Cloudflare 默认只回源 80/443，必须用该规则把回源目标端口覆盖为源站应用实际监听的端口，否则回源连不上。
-5. **防火墙（实例 ufw）**：如启用了 ufw，放行源站应用监听端口的入方向流量；其余端口均关闭。
-6. **验证**：`curl -s -o /dev/null -w "%{http_code}\n" https://gflbbsapi.example.com/`（本机若走 Clash 等代理需加 `--noproxy`），返回 200 即通。
-
-> ⚠️ 源站应用实际监听端口在 `server/ecosystem.config.cjs` 的 `PORT` 配置（可用环境变量覆盖），此处不展开。**该路线下不要在源站装 nginx 或跑 certbot**：Cloudflare 代理会截胡 Let's Encrypt 的 HTTP-01 校验，且访客 HTTPS 已由 Cloudflare 终结，源站本就无需证书。
+- **服务器侧**：只把源站应用跑起来即可（一键脚本 / 手动步骤见上），**不装 nginx、不跑 certbot、不接任何 CDN**。应用监听端口见 `server/ecosystem.config.cjs` 的 `PORT`（可用环境变量覆盖）。
+- **安全组 / 防火墙**：在阿里云控制台将**应用端口**的入方向来源设为你的客户端 IP（或 `0.0.0.0/0` 开放给所有人，需注意暴露风险），**而非之前「仅允许 Cloudflare IP」的规则** —— 若仍残留该规则，直连会被拦截。
+  - 如启用了实例 `ufw`，放行应用端口的入方向流量；其余端口均关闭。
+- **（可选）HTTPS**：直接 IP:端口走的是明文 HTTP。若调用方页面本身是 HTTPS，浏览器会因混合内容（mixed content）拦截 HTTP 请求；此类场景需自行在源站配置证书或改用服务端代发请求。个人工具 / 服务端调用可忽略。
+- **验证**：`curl -s -o /dev/null -w "%{http_code}\n" --noproxy '*' http://<服务器公网IP>:<端口>/`，返回 200 即通。
 
 ### 部署注意
 - **会话已持久化到 admin.json（文件共享）**：`ecosystem.config.cjs` 用 `instances: 1` 单进程，登录态稳；即便改 cluster 多进程（`instances: 'max'`），所有进程也读同一份 `admin.json`，请求轮询到任意进程都能识别登录态（不再被踢）。唯一残留风险是极端并发下多进程同时写 `admin.json` 可能相互覆盖会话，个人工具量级可忽略；高并发场景建议换 Redis。

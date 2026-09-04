@@ -16,9 +16,9 @@
 #   - 自动完成：装 Node 20 LTS + pnpm + pm2 → 装依赖 → 重建 esbuild → 构建
 #     → pm2 守护 → 保存进程列表 → 配开机自启。
 #   - 幂等：重复运行不会破坏已有服务（pm2 以 --update-env 重启）。
-#   - 生产架构 = Cloudflare 代理 → 源站直连：源站只跑 Node 应用（应用实际
-#     监听端口见 server/ecosystem.config.cjs 的 PORT，可用环境变量覆盖），
-#     不装 nginx、不跑 certbot、不开 80/443。
+#   - 生产架构 = 直接 IP:端口 访问（源站直连，不接 CDN / 代理）：源站只跑 Node 应用
+#     （应用实际监听端口见 server/ecosystem.config.cjs 的 PORT，可用环境变量覆盖），
+#     不装 nginx、不跑 certbot、不接 Cloudflare。
 #
 set -euo pipefail
 
@@ -91,6 +91,6 @@ echo
 echo "===== 部署完成 ====="
 echo "  进程列表："
 pm2 list
-echo "  公网访问：经 Cloudflare 代理访问域名（HTTPS），源站无需对外开 80/443"
+echo "  公网访问：直接用 http://<服务器公网IP>:<PORT>/ 访问（PORT 见 server/ecosystem.config.cjs）"
 echo "  管理页： /admin   （社区账号登录在 / 管理员登录后进入）"
 echo "  停止： node stop.mjs    启动： node start.mjs"
